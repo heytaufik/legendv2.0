@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fyers Market Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/live.css">
+  <link rel="stylesheet" href="/profile.css">
+  <link rel="stylesheet" href="/orderflow.css">
+  <link rel="stylesheet" href="/conviction.css">
+  <link rel="stylesheet" href="/orderflow-large.css">
+  <link rel="stylesheet" href="/orderflow-summary.css">
+  <link rel="stylesheet" href="/brand.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><img class="brand-mark brand-image" src="/web%20design.jpg" alt="Flowdesk logo" decoding="async"><div><strong>Flowdesk</strong><span>market intelligence</span></div></div>
+      <div class="status" id="feed-status-wrap" data-state="disconnected"><i></i><span id="feed-status">WAITING FOR FYERS</span><b>READ ONLY</b><button class="chart-toggle" id="chart-toggle" type="button">See Orderflow Chart</button><a class="connect-button" href="/auth/login">Connect FYERS</a></div>
+    </header>
+    <section class="intro" data-overview>
+      <div><p class="eyebrow">INTRADAY ORDER FLOW</p><h1>Index futures, without the noise.</h1><p class="subhead" id="feed-message">Waiting for a live FYERS tick feed.</p></div>
+      <div class="session"><span>SESSION</span><strong id="session-time">--:--:--</strong><small>India Standard Time</small></div>
+    </section>
+    <nav class="instrument-tabs" aria-label="Instrument selector" data-overview><button class="active" data-symbol="NIFTY">NIFTY FUTURES</button><button data-symbol="SENSEX">SENSEX FUTURES</button></nav>
+    <section class="conviction-strip" data-overview aria-label="Opening conviction versus previous session">
+      <div><span>OPENING CONVICTION</span><strong id="opening-status">WAITING</strong></div>
+      <div><span>OPEN VS PREVIOUS VALUE</span><strong id="opening-comparison">--</strong></div>
+      <div><span>PREVIOUS SESSION</span><strong id="opening-reference">--</strong></div>
+    </section>
+    <section class="hero-grid" data-overview>
+      <article class="price-panel"><div class="panel-label">LAST TRADED PRICE <span id="symbol-label">NIFTY FUTURES</span></div><div class="price-row"><strong id="ltp">--</strong><span id="change">--</span></div><div class="range"><span>OPEN <b id="open">--</b></span><span>HIGH <b id="high">--</b></span><span>LOW <b id="low">--</b></span></div></article>
+      <article class="metric-panel"><div class="panel-label">CURRENT DELTA <span>5 MIN</span></div><div class="metric-value" id="delta">--</div><div class="metric-note" id="delta-note">tick-rule estimate</div></article>
+      <article class="metric-panel"><div class="panel-label">CUMULATIVE VOLUME DELTA</div><div class="metric-value" id="cvd">--</div><div class="metric-note">since feed connection</div></article>
+    </section>
+    <section class="lower-grid" data-overview>
+      <article class="value-panel"><div class="section-heading"><div><p class="eyebrow">SESSION VOLUME PROFILE</p><h2>Price distribution</h2></div><span class="live-dot" id="profile-status">WAITING</span></div><div class="levels"><div><span>VAH</span><strong id="vah">--</strong><small>upper value</small></div><div class="poc"><span>POC</span><strong id="poc">--</strong><small>most traded</small></div><div><span>VAL</span><strong id="val">--</strong><small>lower value</small></div></div><div class="profile-readouts"><div><span>SESSION LOW</span><strong id="profile-low">--</strong></div><div><span>LOW VOLUME NODES</span><strong id="lvn-summary">--</strong></div></div><div class="profile-legend"><span class="legend-value">VALUE AREA</span><span class="legend-poc">POC</span><span class="legend-low">SESSION LOW</span><span class="legend-lvn">LVN</span></div><div class="profile-chart" id="profile" aria-label="Session volume profile by price"></div></article>
+      <article class="delta-panel"><div class="section-heading"><div><p class="eyebrow">5-MINUTE FLOW</p><h2>Delta balance</h2></div><span class="unit">tick-rule estimate</span></div><div class="bars" id="bars"></div><div class="axis" id="flow-axis"></div></article>
+    </section>
+    <section class="orderflow-view" id="orderflow-view" hidden>
+      <div class="orderflow-heading"><div><p class="eyebrow">LIVE TICK FLOW</p><h2 id="chart-instrument-title">NIFTY FUTURES</h2></div><span class="chart-disclaimer">Trade side inferred from tick direction, not bid/ask depth.</span></div>
+      <div class="orderflow-controls">
+        <nav class="chart-symbols" aria-label="Orderflow instrument"><button class="active" type="button" data-chart-symbol="NIFTY">NIFTY</button><button type="button" data-chart-symbol="SENSEX">SENSEX</button></nav>
+        <nav class="timeframe-tabs" aria-label="Chart timeframe"><button type="button" data-timeframe="1">1m</button><button type="button" data-timeframe="3">3m</button><button class="active" type="button" data-timeframe="5">5m</button><button type="button" data-timeframe="15">15m</button></nav>
+        <span class="chart-status" id="chart-status">WAITING FOR TICKS</span>
+      </div>
+      <div class="chart-summary"><div><span>OPEN</span><strong id="chart-open">--</strong></div><div><span>HIGH</span><strong id="chart-high">--</strong></div><div><span>LOW</span><strong id="chart-low">--</strong></div><div><span>CLOSE</span><strong id="chart-close">--</strong></div><div><span>BAR VOLUME</span><strong id="chart-volume">--</strong></div><div><span>BAR DELTA</span><strong id="chart-delta">--</strong></div><div><span>SESSION CVD</span><strong id="chart-cvd">--</strong></div><div><span>OPENING CONVICTION</span><strong id="chart-opening-status">WAITING</strong></div></div>
+      <div class="orderflow-layout">
+        <div class="chart-stack">
+          <article class="chart-panel"><div class="chart-panel-heading"><h3>Price candles</h3><span>OHLC from traded-price updates</span></div><canvas id="orderflow-candles" aria-label="Tick-derived price candles"></canvas></article>
+          <article class="chart-panel"><div class="chart-panel-heading"><h3>Delta</h3><span>Tick-rule estimate</span></div><canvas id="delta-chart" aria-label="Estimated buy and sell delta by candle"></canvas></article>
+          <article class="chart-panel"><div class="chart-panel-heading"><h3>Cumulative volume delta</h3><span>Since feed connection</span></div><canvas id="cvd-chart" aria-label="Cumulative estimated volume delta"></canvas></article>
+        </div>
+        <article class="chart-profile-panel"><div class="chart-panel-heading"><div><h3>Volume distribution</h3><span>Tick price / traded volume</span></div><span class="live-dot" id="chart-profile-status">COLLECTING</span></div><div class="levels chart-levels"><div><span>VAH</span><strong id="chart-vah">--</strong></div><div class="poc"><span>POC</span><strong id="chart-poc">--</strong></div><div><span>VAL</span><strong id="chart-val">--</strong></div></div><div class="profile-readouts"><div><span>SESSION LOW</span><strong id="chart-profile-low">--</strong></div><div><span>LOW VOLUME NODES</span><strong id="chart-lvns">--</strong></div></div><div class="profile-legend"><span class="legend-value">VALUE AREA</span><span class="legend-poc">POC</span><span class="legend-low">SESSION LOW</span><span class="legend-lvn">LVN</span></div><div class="profile-chart" id="chart-profile" aria-label="Orderflow chart volume profile"></div></article>
+      </div>
+    </section>
+    <footer data-overview><span>Delta is inferred from tick-price direction; profile and CVD start when this feed connects.</span><span>NO ORDER PLACEMENT</span></footer>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

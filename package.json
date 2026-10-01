@@ -1,0 +1,17 @@
+{
+  "name": "fyers-market-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "csv-parse": "^7.0.3",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "fyers-api-v3": "^2.3.0"
+  }
+}
