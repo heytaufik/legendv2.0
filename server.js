@@ -693,7 +693,7 @@ function startMarketSocket() {
       connectionMessage = 'FYERS market feed closed.';
       broadcast();
     });
-    marketSocket.autoReconnect(50);
+    marketSocket.autoreconnect(50);
     marketSocket.connect();
   } catch (error) {
     console.error('Could not start the FYERS market feed:', safeFyersError(error));
