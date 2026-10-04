@@ -108,6 +108,14 @@ function isValidAuthState(state) {
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
+function safeFyersError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return [accessToken, process.env.FYERS_SECRET_ID, process.env.FYERS_APP_ID]
+    .filter(Boolean)
+    .reduce((safeMessage, secret) => safeMessage.replaceAll(secret, '[redacted]'), message)
+    .slice(0, 300);
+}
+
 function scheduleArchiveSave() {
   if (archiveSaveTimer) return;
   archiveSaveTimer = setTimeout(() => {
@@ -650,9 +658,10 @@ function startMarketSocket() {
           subscriptionStarted = true;
           connectionStatus = 'connected';
           connectionMessage = 'Live FYERS feed connected. Delta uses tick-rule estimation.';
-        } catch {
+        } catch (error) {
+          console.error('Could not subscribe to the FYERS market feed:', safeFyersError(error));
           connectionStatus = 'disconnected';
-          connectionMessage = 'FYERS feed connected but subscription could not start.';
+          connectionMessage = 'FYERS feed connected, but market data subscription failed. Check Render logs.';
         }
         broadcast();
         return;
@@ -672,9 +681,10 @@ function startMarketSocket() {
       subscribeWhenReady();
     });
     marketSocket.on('message', handleMarketMessage);
-    marketSocket.on('error', () => {
+    marketSocket.on('error', (error) => {
+      console.error('FYERS market feed error:', safeFyersError(error));
       connectionStatus = 'disconnected';
-      connectionMessage = 'FYERS market feed error. Reconnect to try again.';
+      connectionMessage = 'FYERS market feed error. Check Render logs before reconnecting.';
       broadcast();
     });
     marketSocket.on('close', () => {
@@ -685,9 +695,10 @@ function startMarketSocket() {
     });
     marketSocket.autoReconnect(50);
     marketSocket.connect();
-  } catch {
+  } catch (error) {
+    console.error('Could not start the FYERS market feed:', safeFyersError(error));
     connectionStatus = 'disconnected';
-    connectionMessage = 'Could not start the FYERS market feed.';
+    connectionMessage = 'Could not start FYERS market feed. Check Render logs.';
     broadcast();
   }
 }
