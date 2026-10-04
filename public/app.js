@@ -3,6 +3,7 @@ const instrumentButtons = [...document.querySelectorAll('.instrument-tabs button
 let selectedSymbol = 'NIFTY';
 let selectedTimeframe = 5;
 let marketData = null;
+let activeView = 'overview';
 
 function formatNumber(value) {
   return Number.isFinite(value) ? numberFormat.format(value) : '--';
@@ -25,6 +26,16 @@ function formatTime(timestamp) {
     minute: '2-digit',
     hour12: false
   }).format(new Date(timestamp));
+}
+
+function formatSessionDate(date) {
+  return new Intl.DateTimeFormat('en-IN', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata'
+  }).format(new Date(`${date}T12:00:00+05:30`));
 }
 
 function renderFlow(flow = []) {
@@ -103,16 +114,56 @@ function makeProfileTag(text, className) {
   return tag;
 }
 
+function renderLvnZones(instrument) {
+  const sections = [
+    { id: 'today-lvn-zones', countId: 'today-lvn-count', zones: instrument.todayLvnZones || [], historical: false },
+    { id: 'historical-lvn-zones', countId: 'historical-lvn-count', zones: instrument.historicalLvnZones || [], historical: true }
+  ];
+  for (const section of sections) {
+    const list = document.getElementById(section.id);
+    list.replaceChildren();
+    document.getElementById(section.countId).textContent = String(section.zones.length);
+    if (!section.zones.length) {
+      const empty = document.createElement('div');
+      empty.className = 'lvn-zone-empty';
+      empty.textContent = section.historical ? 'No untested prior areas' : 'No LVN areas detected';
+      list.append(empty);
+      continue;
+    }
+    section.zones.forEach((zone) => {
+      const row = document.createElement('div');
+      row.className = 'lvn-zone-row';
+      const range = document.createElement('strong');
+      range.className = 'lvn-zone-range';
+      range.textContent = `${formatNumber(zone.low)} - ${formatNumber(zone.high)}`;
+      const meta = document.createElement('span');
+      meta.className = 'lvn-zone-meta';
+      meta.textContent = section.historical
+        ? `${formatSessionDate(zone.date)} · ${formatNumber(zone.volume)} volume · ${zone.source === 'FYERS_CHART' ? 'FYERS' : 'estimated'}`
+        : `${formatSessionDate(zone.date)} · ${formatNumber(zone.volume)} volume · ${zone.source === 'FYERS_CHART' ? 'FYERS' : 'estimated'}`;
+      const status = document.createElement('span');
+      status.className = `lvn-zone-status ${zone.valueAreaStatus.toLowerCase()}`;
+      status.textContent = section.historical ? `UNTESTED · ${zone.valueAreaStatus} VA` : `${zone.valueAreaStatus} VA`;
+      row.append(range, meta, status);
+      list.append(row);
+    });
+  }
+}
+
 function updateProfile(instrument, prefix = '') {
   document.getElementById(`${prefix}vah`).textContent = formatNumber(instrument.vah);
   document.getElementById(`${prefix}poc`).textContent = formatNumber(instrument.poc);
   document.getElementById(`${prefix}val`).textContent = formatNumber(instrument.val);
   document.getElementById(`${prefix}profile-low`).textContent = formatNumber(instrument.low);
-  document.getElementById(`${prefix}${prefix ? 'lvns' : 'lvn-summary'}`).textContent = instrument.lvns?.length
-    ? instrument.lvns.map(formatNumber).join(' / ')
+  const zones = instrument.todayLvnZones || [];
+  document.getElementById(`${prefix}${prefix ? 'lvns' : 'lvn-summary'}`).textContent = zones.length
+    ? zones.slice(0, 3).map((zone) => `${formatNumber(zone.low)}-${formatNumber(zone.high)}`).join(' / ')
     : '--';
-  document.getElementById(`${prefix}profile-status`).textContent = instrument.poc === null ? 'COLLECTING' : 'LIVE';
+  document.getElementById(`${prefix}profile-status`).textContent = instrument.poc === null
+    ? 'COLLECTING'
+    : instrument.profileSource === 'FYERS_CHART' ? 'FYERS' : 'LIVE';
   renderProfile(instrument, `${prefix}profile` || 'profile');
+  if (!prefix) renderLvnZones(instrument);
 }
 
 function setupCanvas(id, height) {
@@ -143,12 +194,12 @@ function chartCanvasHeight(viewportRatio, minimum, maximum) {
   return Math.round(Math.min(viewportLimit, Math.max(minimum, window.innerHeight * viewportRatio)));
 }
 
-function drawPriceChart(bars) {
+function drawPriceChart(bars, emptyMessage) {
   const height = chartCanvasHeight(0.5, 340, 640);
   const chart = setupCanvas('orderflow-candles', height);
   if (!chart) return;
   if (!bars.length) {
-    drawEmptyCanvas('orderflow-candles', height, 'Waiting for traded ticks');
+    drawEmptyCanvas('orderflow-candles', height, emptyMessage);
     return;
   }
   const { context, width, height: canvasHeight } = chart;
@@ -194,12 +245,12 @@ function drawPriceChart(bars) {
   });
 }
 
-function drawDeltaChart(bars) {
+function drawDeltaChart(bars, emptyMessage) {
   const height = chartCanvasHeight(0.17, 132, 220);
   const chart = setupCanvas('delta-chart', height);
   if (!chart) return;
   if (!bars.length) {
-    drawEmptyCanvas('delta-chart', height, 'Delta will appear with the first volume update');
+    drawEmptyCanvas('delta-chart', height, emptyMessage);
     return;
   }
   const { context, width, height: canvasHeight } = chart;
@@ -225,12 +276,12 @@ function drawDeltaChart(bars) {
   });
 }
 
-function drawCvdChart(bars) {
+function drawCvdChart(bars, emptyMessage) {
   const height = chartCanvasHeight(0.2, 156, 240);
   const chart = setupCanvas('cvd-chart', height);
   if (!chart) return;
   if (!bars.length) {
-    drawEmptyCanvas('cvd-chart', height, 'CVD will appear with the first volume update');
+    drawEmptyCanvas('cvd-chart', height, emptyMessage);
     return;
   }
   const { context, width, height: canvasHeight } = chart;
@@ -276,7 +327,10 @@ function drawCvdChart(bars) {
 }
 
 function renderOrderflow(instrument) {
-  document.getElementById('chart-instrument-title').textContent = instrument.symbol || `${selectedSymbol} FUTURES`;
+  const contract = instrument.contract;
+  document.getElementById('chart-instrument-title').textContent = contract
+    ? `${contract.description} · expiry ${contract.expiryLabel || contract.expiryDate || 'unavailable'}`
+    : instrument.symbol || `${selectedSymbol} FUTURES`;
   const bars = instrument.orderflow?.[selectedTimeframe] || [];
   const candle = bars.at(-1);
   const values = { open: candle?.open, high: candle?.high, low: candle?.low, close: candle?.close, volume: candle?.volume };
@@ -289,20 +343,46 @@ function renderOrderflow(instrument) {
   const cvd = document.getElementById('chart-cvd');
   cvd.textContent = candle ? formatSigned(candle.cvd) : '--';
   setTone(cvd, candle?.cvd);
-  document.getElementById('chart-status').textContent = bars.length ? `${bars.length} ${selectedTimeframe}m bars` : 'WAITING FOR TICKS';
-  drawPriceChart(bars.slice(-80));
-  drawDeltaChart(bars.slice(-80));
-  drawCvdChart(bars.slice(-80));
+  const fyersSource = Boolean(instrument.fyersOrderflow?.candleFresh?.[selectedTimeframe])
+    && Boolean(instrument.fyersOrderflow?.candles?.[selectedTimeframe]?.length);
+  const connection = marketData?.status;
+  const feedMessage = !contract
+    ? 'Loading the current futures contract from FYERS.'
+    : connection === 'connected'
+      ? `FYERS connected to ${contract.symbol}. Waiting for market ticks; live candles update during exchange hours.`
+      : connection === 'connecting'
+        ? 'Connecting to FYERS. The active expiry contract will appear as soon as the feed is ready.'
+        : `Connect FYERS to stream ${contract.symbol}.`;
+  const emptyMessage = !contract
+    ? 'Loading active futures contract'
+    : connection === 'connected'
+      ? 'Connected · waiting for market ticks'
+      : 'Connect FYERS for live active-contract data';
+  document.getElementById('chart-data-status').textContent = bars.length
+    ? `${fyersSource ? 'Fresh FYERS footprint' : connection === 'connected' ? 'Live tick-derived orderflow' : 'Last available orderflow'} · ${bars.length} ${selectedTimeframe}-minute bars.`
+    : feedMessage;
+  document.getElementById('chart-status').textContent = bars.length
+    ? `${bars.length} ${selectedTimeframe}m bars${fyersSource ? ' · FYERS footprint' : connection === 'connected' ? ' · LIVE' : ' · SAVED'}`
+    : connection === 'connected' ? 'WAITING FOR MARKET TICKS' : 'NO LIVE MARKET DATA';
+  document.getElementById('delta-chart-source').textContent = fyersSource ? 'FYERS footprint' : 'Tick-rule estimate';
+  document.getElementById('cvd-chart-source').textContent = fyersSource ? 'FYERS session CVD' : 'Since feed connection';
+  document.getElementById('chart-disclaimer').textContent = fyersSource
+    ? 'Numeric FYERS price-level Ask/Bid footprint captured from your chart session.'
+    : 'Tick-based buy/sell estimate; this is not numeric bid/ask footprint depth.';
+  drawPriceChart(bars.slice(-80), emptyMessage);
+  drawDeltaChart(bars.slice(-80), emptyMessage);
+  drawCvdChart(bars.slice(-80), emptyMessage);
 }
 
 function renderOpeningConviction(instrument) {
   const conviction = instrument.openingConviction || {};
   const labels = {
-    UP: 'SHIFTED UP',
-    DOWN: 'SHIFTED DOWN',
-    INSIDE: 'INSIDE VALUE',
+    UP: 'OPENED ABOVE VALUE',
+    DOWN: 'OPENED BELOW VALUE',
+    INSIDE: 'OPENED INSIDE VALUE',
     WAITING_OPEN: 'WAITING FOR OPEN',
-    WAITING_PRIOR_VALUE: 'NO PRIOR VALUE'
+    WAITING_PRIOR_VALUE: 'NO PRIOR VALUE',
+    WAITING_FOR_MARKET_SESSION: 'WAITING FOR NEXT MARKET SESSION'
   };
   const status = labels[conviction.direction] || 'WAITING';
   const comparison = conviction.direction === 'UP'
@@ -331,6 +411,10 @@ function updateInstrument() {
   if (!instrument) return;
 
   document.getElementById('symbol-label').textContent = instrument.symbol || `${selectedSymbol} FUTURES`;
+  const contract = instrument.contract;
+  document.getElementById('active-contract').textContent = contract
+    ? `${selectedSymbol} CONTRACT · ${contract.symbol} · ${contract.description} · EXPIRY ${contract.expiryLabel || contract.expiryDate || 'DATE UNAVAILABLE'}${contract.expired ? ' · EXPIRED' : ''}`
+    : `${selectedSymbol} CONTRACT · ${instrument.symbol || 'waiting for FYERS symbol master'}`;
   document.getElementById('ltp').textContent = formatNumber(instrument.price);
   const changeText = Number.isFinite(instrument.change)
     ? `${formatSigned(instrument.change)} (${formatSigned(instrument.changePercent, '%')})`
@@ -343,11 +427,24 @@ function updateInstrument() {
   document.getElementById('high').textContent = formatNumber(instrument.high);
   document.getElementById('low').textContent = formatNumber(instrument.low);
   const delta = document.getElementById('delta');
-  delta.textContent = instrument.updatedAt ? formatSigned(instrument.delta) : '--';
+  delta.textContent = instrument.updatedAt || instrument.deltaSource === 'FYERS_CHART'
+    ? formatSigned(instrument.delta)
+    : '--';
   setTone(delta, instrument.delta);
+  document.getElementById('delta-note').textContent = instrument.deltaSource === 'FYERS_CHART'
+    ? 'FYERS footprint · 5-minute candle'
+    : 'tick-rule estimate';
   const cvd = document.getElementById('cvd');
-  cvd.textContent = instrument.updatedAt ? formatSigned(instrument.cvd) : '--';
+  cvd.textContent = instrument.updatedAt || instrument.cvdSource === 'FYERS_CHART'
+    ? formatSigned(instrument.cvd)
+    : '--';
   setTone(cvd, instrument.cvd);
+  document.getElementById('cvd-note').textContent = instrument.cvdSource === 'FYERS_CHART'
+    ? 'FYERS session volume profile'
+    : 'since feed connection';
+  document.getElementById('flow-source').textContent = instrument.flowSource === 'FYERS_CHART'
+    ? 'FYERS footprint'
+    : 'tick-rule estimate';
 
   updateProfile(instrument);
   updateProfile(instrument, 'chart-');
@@ -356,15 +453,249 @@ function updateInstrument() {
   renderOrderflow(instrument);
 }
 
+function setView(view) {
+  activeView = view;
+  document.querySelectorAll('[data-overview]').forEach((section) => {
+    section.hidden = view !== 'overview';
+  });
+  document.getElementById('orderflow-view').hidden = view !== 'chart';
+  document.getElementById('market-read-view').hidden = view !== 'read';
+  document.getElementById('chart-toggle').textContent = view === 'chart' ? 'Back to Overview' : 'See Orderflow Chart';
+}
+
+function renderMarketRead(data) {
+  const analysis = data.analysis;
+  const current = data.sessions.at(-1);
+  const previous = data.sessions.find((session) => session.date === analysis.previousDate);
+  document.getElementById('market-read-title').textContent = `${data.instrument} · Detailed market read`;
+  const status = document.getElementById('market-read-status');
+  const dataTime = current?.updatedAt ? formatTime(Date.parse(current.updatedAt)) : 'unknown';
+  const marketStatus = data.marketDay || analysis.readiness === 'MARKET_CLOSED' ? '' : 'MARKET CLOSED (WEEKEND) · ';
+  const freshness = [
+    analysis.marketDataFresh ? `live data as of ${dataTime} IST` : 'live market data is stale',
+    analysis.footprintDataFresh ? '5-minute footprint fresh' : '5-minute footprint stale'
+  ].join(' · ');
+  status.textContent = `${marketStatus}${analysis.readiness.replaceAll('_', ' ')} · ${freshness} · ${data.sessions.length} session(s) saved · FYERS footprint`;
+  status.dataset.state = analysis.readiness === 'PLAN_AVAILABLE' ? 'ready' : 'waiting';
+  const valueContext = analysis.priceVsPreviousValue === 'ABOVE_VALUE'
+    ? 'Price is above the previous value area'
+    : analysis.priceVsPreviousValue === 'BELOW_VALUE'
+      ? 'Price is below the previous value area'
+      : analysis.priceVsPreviousValue === 'INSIDE_VALUE'
+        ? 'Price is inside the previous value area'
+        : 'Previous value area is unavailable';
+  const deltaContext = analysis.deltaAlignment === 'ALIGNED'
+    ? 'recent delta supports the short-term price structure'
+    : analysis.deltaAlignment === 'DIVERGING'
+      ? 'recent delta conflicts with the short-term price structure'
+      : 'recent delta does not yet confirm a clear structure';
+  document.getElementById('read-session-story').textContent = current
+    ? `${valueContext}; 5-minute price structure is ${analysis.trendDirection.toLowerCase()}, and ${deltaContext}. Opening context is ${analysis.openingDirection.toLowerCase()} and contributes only a small supporting weight—not a standalone direction call. ${data.marketDay ? analysis.marketDataFresh ? 'Market data is fresh.' : 'Market data is stale, so no new entry is evaluated.' : `Market is closed; showing the saved ${current.date} session for context only.`}`
+    : 'Waiting for current-session candles and previous-session levels.';
+
+  const move = document.getElementById('read-session-move');
+  move.textContent = Number.isFinite(analysis.sessionMove) ? formatSigned(analysis.sessionMove, ' pts') : '--';
+  setTone(move, analysis.sessionMove);
+  document.getElementById('read-session-move-label').textContent = data.marketDay ? 'SESSION MOVE' : 'LAST SESSION MOVE';
+  document.getElementById('read-session-range').textContent = current
+    ? `${current.date} · Open ${formatNumber(analysis.sessionOpen)} → close/last ${formatNumber(analysis.currentPrice)} · H ${formatNumber(current.high)} / L ${formatNumber(current.low)}`
+    : 'Waiting for session data';
+  document.getElementById('read-structure').textContent = analysis.trendDirection === 'UP'
+    ? 'UPWARD'
+    : analysis.trendDirection === 'DOWN' ? 'DOWNWARD' : 'MIXED';
+  document.getElementById('read-structure-detail').textContent = `${current?.candles?.['5']?.length || 0} captured 5-minute candles; only completed candles count toward setup checks.`;
+  const delta = document.getElementById('read-delta');
+  delta.textContent = formatSigned(analysis.recentDelta);
+  setTone(delta, analysis.recentDelta);
+  document.getElementById('read-cvd').textContent = `Session CVD: ${formatSigned(analysis.cumulativeDelta)}`;
+  const imbalance = analysis.lastImbalance;
+  const imbalanceLabel = imbalance?.direction === 'UP'
+    ? `BUY STACK ×${imbalance.buyStack}`
+    : imbalance?.direction === 'DOWN' ? `SELL STACK ×${imbalance.sellStack}` : 'NO STACKED IMBALANCE';
+  document.getElementById('read-imbalance').textContent = imbalanceLabel;
+  document.getElementById('read-imbalance-detail').textContent = imbalance
+    ? `${imbalance.buyImbalanceCount} buy / ${imbalance.sellImbalanceCount} sell diagonal imbalances in the latest completed candle.`
+    : 'No completed footprint candle yet.';
+
+  document.getElementById('read-previous-date').textContent = previous?.date || 'No prior session loaded';
+  document.getElementById('read-opening-context').textContent = `Open context: ${analysis.openingDirection || 'UNKNOWN'} · supporting clue only`;
+  const priorLevels = document.getElementById('read-prior-levels');
+  priorLevels.replaceChildren();
+  const levelValues = previous ? [
+    ['SESSION VAH', current?.vah],
+    ['SESSION POC', current?.poc],
+    ['SESSION VAL', current?.val],
+    ['VAH', previous.vah],
+    ['POC', previous.poc],
+    ['VAL', previous.val],
+    ['PRIOR HIGH', previous.high],
+    ['PRIOR LOW', previous.low],
+    ['PRIOR HVNS', analysis.previousLevels?.hvns?.length ? analysis.previousLevels.hvns.slice(0, 5).map(formatNumber).join(' · ') : null],
+    ['PRIOR LVNS', analysis.previousLevels?.lvns?.length ? analysis.previousLevels.lvns.slice(0, 5).map(formatNumber).join(' · ') : null]
+  ] : [['PRIOR SESSION', null]];
+  levelValues.forEach(([label, value]) => {
+    const item = document.createElement('div');
+    const heading = document.createElement('span');
+    heading.textContent = label;
+    const content = document.createElement('strong');
+    content.textContent = Array.isArray(value) ? value.join(' · ') : Number.isFinite(value) ? formatNumber(value) : value || '--';
+    item.append(heading, content);
+    priorLevels.append(item);
+  });
+
+  const plan = analysis.tradePlan;
+  document.getElementById('read-plan-title').textContent = plan
+    ? `${plan.direction === 'UP' ? 'LONG' : 'SHORT'} · ${plan.model}`
+    : 'No qualified entry';
+  document.getElementById('read-plan-reason').textContent = analysis.reason;
+  document.getElementById('read-evidence-score').textContent = plan ? `EVIDENCE ${plan.evidenceScore}/100` : 'NO TRADE';
+  const planDetails = document.getElementById('read-plan-details');
+  planDetails.replaceChildren();
+  if (plan) {
+    [
+      ['ENTRY TRIGGER', formatNumber(plan.entry)],
+      ['STOP LOSS', formatNumber(plan.stop)],
+      ['TAKE PROFIT', formatNumber(plan.target)],
+      ['RISK : REWARD', `1 : ${numberFormat.format(plan.riskReward)}`],
+      ['SETUP STATUS', plan.status.replaceAll('_', ' ')]
+    ].forEach(([label, value]) => {
+      const item = document.createElement('div');
+      const heading = document.createElement('span');
+      heading.textContent = label;
+      const content = document.createElement('strong');
+      content.textContent = value;
+      item.append(heading, content);
+      planDetails.append(item);
+    });
+    document.getElementById('read-plan-reason').textContent = `${analysis.reason} ${plan.maximumHold}`;
+    const factors = plan.evidence.map((factor) => `${factor.name} ${factor.points}/${factor.maxPoints}`);
+    document.getElementById('read-plan-reason').textContent += ` Evidence breakdown: ${factors.join('; ')}.`;
+  }
+
+  const outcomes = data.outcomes || { models: [], totalSignals: 0, resolvedSample: 0, pendingSignals: 0 };
+  document.getElementById('read-outcome-count').textContent = `${outcomes.resolvedSample} resolved`;
+  document.getElementById('read-outcome-summary').textContent = `${outcomes.totalSignals} model signals recorded · ${outcomes.pendingSignals} awaiting trigger/outcome · ${outcomes.excludedNoTrigger} expired without trigger · ${outcomes.excludedAmbiguous} ambiguous · ${outcomes.excludedDataGaps} data gaps. Simulated rule-based results, not executed trades.`;
+  const modelOutcomes = document.getElementById('read-outcome-models');
+  modelOutcomes.replaceChildren();
+  const visibleModels = outcomes.models.filter((model) => model.totalSignals > 0);
+  if (!visibleModels.length) {
+    const item = document.createElement('div');
+    const heading = document.createElement('span');
+    heading.textContent = 'CALIBRATION';
+    const content = document.createElement('strong');
+    content.textContent = `Collecting first ${outcomes.minimumSample || 30} resolved outcomes`;
+    item.append(heading, content);
+    modelOutcomes.append(item);
+  } else {
+    visibleModels.forEach((model) => {
+      const item = document.createElement('div');
+      const heading = document.createElement('span');
+      heading.textContent = `${model.direction === 'UP' ? 'LONG' : 'SHORT'} · ${model.model} · SCORE ${model.evidenceBand}`;
+      const content = document.createElement('strong');
+      content.textContent = model.probabilityAvailable
+        ? `${Math.round(model.historicalPositiveRate * 100)}% · ${model.resolvedSample} samples`
+        : `Uncalibrated · ${model.resolvedSample}/${outcomes.minimumSample} resolved`;
+      const detail = document.createElement('small');
+      detail.textContent = model.probabilityAvailable
+        ? `95% interval ${Math.round(model.confidenceInterval95.lower * 100)}–${Math.round(model.confidenceInterval95.upper * 100)}% · avg ${numberFormat.format(model.averageR)}R`
+        : `${model.wins} positive · ${model.losses} negative · ${model.waiting} waiting · ${model.active} active`;
+      item.append(heading, content, detail);
+      modelOutcomes.append(item);
+    });
+  }
+  if (plan) {
+    const scoreBand = `${Math.floor(plan.evidenceScore / 10) * 10}-${Math.floor(plan.evidenceScore / 10) * 10 + 9}`;
+    const selectedModel = visibleModels.find((model) => model.direction === plan.direction
+      && model.model === plan.model
+      && model.evidenceBand === scoreBand);
+    const probability = selectedModel?.probabilityAvailable
+      ? ` Historical ${Math.round(selectedModel.historicalPositiveRate * 100)}% positive outcome across ${selectedModel.resolvedSample} same-model samples (95% interval ${Math.round(selectedModel.confidenceInterval95.lower * 100)}–${Math.round(selectedModel.confidenceInterval95.upper * 100)}%).`
+      : ` Historical probability for this exact model is not calibrated yet (${selectedModel?.resolvedSample || 0}/${outcomes.minimumSample || 30} resolved samples).`;
+    document.getElementById('read-plan-reason').textContent += probability;
+  }
+
+  const latestCandle = current?.candles?.['5']?.find((candle) => candle.time === analysis.latestCandleTime);
+  document.getElementById('read-footprint-time').textContent = latestCandle
+    ? `${formatTime(latestCandle.time)} IST · ${formatNumber(latestCandle.volume)} volume · delta ${formatSigned(latestCandle.delta)}`
+    : 'No completed 5-minute footprint';
+  const footprintRows = document.getElementById('read-footprint-levels');
+  footprintRows.replaceChildren();
+  if (!latestCandle?.levels?.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.className = 'market-read-empty';
+    cell.textContent = 'No price-level bid/ask data captured for the latest completed candle.';
+    row.append(cell);
+    footprintRows.append(row);
+  } else {
+    [...latestCandle.levels].sort((left, right) => right.price - left.price).forEach((level) => {
+      const row = document.createElement('tr');
+      const values = [formatNumber(level.price), formatNumber(level.positiveVolume), formatNumber(level.negativeVolume), formatSigned(level.positiveVolume - level.negativeVolume)];
+      values.forEach((value, index) => {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        if (index === 3) cell.className = level.positiveVolume - level.negativeVolume > 0 ? 'positive' : 'negative';
+        row.append(cell);
+      });
+      footprintRows.append(row);
+    });
+  }
+
+  const candleHistory = document.getElementById('read-candle-history');
+  candleHistory.replaceChildren();
+  const capturedCandles = current?.candles?.['5'] || [];
+  document.getElementById('read-candle-count').textContent = `${capturedCandles.length} captured · ${analysis.completedCandleCount} completed`;
+  const completedCandles = capturedCandles.filter((candle) => candle.time + 5 * 60000 <= Date.now()).slice(-20).reverse();
+  if (!completedCandles.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    cell.className = 'market-read-empty';
+    cell.textContent = 'Waiting for completed captured candles.';
+    row.append(cell);
+    candleHistory.append(row);
+  } else {
+    completedCandles.forEach((candle) => {
+      const row = document.createElement('tr');
+      [formatTime(candle.time), `${formatNumber(candle.open)} / ${formatNumber(candle.high)} / ${formatNumber(candle.low)} / ${formatNumber(candle.close)}`, formatNumber(candle.volume), formatSigned(candle.delta), formatSigned(candle.cvd)]
+        .forEach((value, index) => {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          if (index === 3 || index === 4) cell.className = (index === 3 ? candle.delta : candle.cvd) >= 0 ? 'positive' : 'negative';
+          row.append(cell);
+        });
+      candleHistory.append(row);
+    });
+  }
+}
+
+async function openMarketRead() {
+  setView('read');
+  const status = document.getElementById('market-read-status');
+  status.textContent = 'Loading saved FYERS footprint and session history…';
+  status.dataset.state = 'loading';
+  try {
+    const response = await fetch(`/api/orderflow-history/${encodeURIComponent(selectedSymbol)}`);
+    if (!response.ok) throw new Error(`Market history request failed (${response.status})`);
+    renderMarketRead(await response.json());
+  } catch (error) {
+    status.textContent = `Could not load market history: ${error.message}`;
+    status.dataset.state = 'error';
+  }
+}
+
 function updateConnection(state) {
   const status = document.getElementById('feed-status-wrap');
   const label = document.getElementById('feed-status');
   const message = document.getElementById('feed-message');
+  const connectButton = document.getElementById('connect-button');
   status.dataset.state = state.status;
   label.textContent = state.status === 'connected'
     ? 'LIVE TICKS'
     : state.status === 'connecting' ? 'CONNECTING' : 'DISCONNECTED';
   message.textContent = state.message;
+  connectButton.hidden = state.status === 'connected' || state.status === 'connecting';
 }
 
 function selectSymbol(symbol) {
@@ -373,6 +704,7 @@ function selectSymbol(symbol) {
     button.classList.toggle('active', button.dataset.symbol === symbol || button.dataset.chartSymbol === symbol);
   });
   updateInstrument();
+  if (activeView === 'read') openMarketRead();
 }
 
 instrumentButtons.forEach((button) => {
@@ -396,11 +728,12 @@ document.querySelectorAll('[data-timeframe]').forEach((button) => {
 const orderflowView = document.getElementById('orderflow-view');
 document.getElementById('chart-toggle').addEventListener('click', (event) => {
   const opening = orderflowView.hidden;
-  orderflowView.hidden = !opening;
-  document.querySelectorAll('[data-overview]').forEach((section) => { section.hidden = opening; });
-  event.currentTarget.textContent = opening ? 'Back to Overview' : 'See Orderflow Chart';
+  setView(opening ? 'chart' : 'overview');
   if (opening) updateInstrument();
 });
+document.getElementById('market-read-toggle').addEventListener('click', openMarketRead);
+document.getElementById('market-read-refresh').addEventListener('click', openMarketRead);
+document.getElementById('market-read-back').addEventListener('click', () => setView('overview'));
 
 window.addEventListener('resize', () => {
   if (!orderflowView.hidden) updateInstrument();
@@ -413,9 +746,15 @@ stream.addEventListener('message', (event) => {
   updateInstrument();
 });
 stream.addEventListener('error', () => {
-  document.getElementById('feed-status-wrap').dataset.state = 'disconnected';
-  document.getElementById('feed-status').textContent = 'SERVER OFFLINE';
-  document.getElementById('feed-message').textContent = 'Market server connection lost.';
+  if (stream.readyState === EventSource.CLOSED) {
+    document.getElementById('feed-status-wrap').dataset.state = 'disconnected';
+    document.getElementById('feed-status').textContent = 'SERVER OFFLINE';
+    document.getElementById('feed-message').textContent = 'Dashboard stream closed.';
+    return;
+  }
+  document.getElementById('feed-status-wrap').dataset.state = 'connecting';
+  document.getElementById('feed-status').textContent = 'RECONNECTING';
+  document.getElementById('feed-message').textContent = 'Dashboard updates paused; the browser is reconnecting. FYERS feed status will update when the stream returns.';
 });
 
 function updateClock() {

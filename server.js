@@ -5,18 +5,38 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fyersSdk from 'fyers-api-v3';
 import { parse } from 'csv-parse/sync';
-import { calculateValueArea, classifyOpening, indiaDateKey, latestSessionBefore, pruneSessions, readSessionArchive, writeSessionArchive } from './lib/session-profile.js';
+import { isAuthorizedCaptureRequest } from './lib/capture-auth.js';
+import { createJsonDocumentStore } from './lib/json-document-store.js';
+import { buildProfileBins, calculateValueArea, classifyOpening, detectLowVolumeZones, indiaDateKey, latestSessionBefore, pruneSessions, readSessionArchive, untestedHistoricalLowVolumeZones, writeSessionArchive } from './lib/session-profile.js';
+import { mergeFyersOrderflow } from './lib/fyers-orderflow.js';
+import { mergeOrderflowHistory, ORDERFLOW_RETENTION_SESSIONS, readOrderflowHistory, writeOrderflowHistory } from './lib/orderflow-history.js';
+import { analyzeMarketHistory } from './lib/market-analysis.js';
+import { selectFuturesContract } from './lib/futures-contract.js';
+import { readTradeOutcomes, recordTradeOutcomes, summarizeTradeOutcomes, writeTradeOutcomes } from './lib/trade-outcomes.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const directory = path.dirname(fileURLToPath(import.meta.url));
-const archivePath = path.join(directory, 'data', 'session-profiles.json');
+const dataDirectory = path.resolve(process.env.DATA_DIR || path.join(directory, 'data'));
+const archivePath = path.join(dataDirectory, 'session-profiles.json');
+const orderflowHistoryPath = path.join(dataDirectory, 'orderflow-history.json');
+const tradeOutcomesPath = path.join(dataDirectory, 'setup-outcomes.json');
+const documentStore = createJsonDocumentStore({
+  connectionString: process.env.DATABASE_URL,
+  documents: {
+    'session-profiles': archivePath,
+    'orderflow-history': orderflowHistoryPath,
+    'setup-outcomes': tradeOutcomesPath
+  }
+});
+const captureToken = process.env.LEGEND_CAPTURE_TOKEN || '';
 const { fyersDataSocket } = fyersSdk;
 const configuredInstruments = {
   NIFTY: process.env.FYERS_NIFTY_SYMBOL || '',
   SENSEX: process.env.FYERS_SENSEX_SYMBOL || ''
 };
 const instrumentTickSizes = { NIFTY: 0.05, SENSEX: 0.05 };
+const activeContracts = { NIFTY: null, SENSEX: null };
 const instrumentState = Object.fromEntries(Object.keys(configuredInstruments).map((key) => [key, {
   sessionDate: indiaDateKey(),
   price: null,
@@ -29,6 +49,8 @@ const instrumentState = Object.fromEntries(Object.keys(configuredInstruments).ma
   lastDirection: 0,
   delta: 0,
   cvd: 0,
+  fyersOrderflow: null,
+  profileSource: 'TICK_RULE_ESTIMATE',
   flow: [],
   orderflow: { 1: [], 3: [], 5: [], 15: [] },
   profile: new Map(),
@@ -40,11 +62,30 @@ let marketSocket = null;
 let connectionStatus = 'disconnected';
 let connectionMessage = 'Loading active futures contracts from FYERS...';
 let sessionArchive = {};
+let orderflowHistory = {};
+let tradeOutcomes = { signals: [] };
 let archiveSaveTimer = null;
 let archiveWriteQueue = Promise.resolve();
+let orderflowWriteQueue = Promise.resolve();
+let tradeOutcomesWriteQueue = Promise.resolve();
 
-app.use(express.json());
+app.use(express.json({ limit: '8mb' }));
 app.use(express.static(path.join(directory, 'public')));
+
+app.use('/api/fyers-orderflow', (request, response, next) => {
+  const origin = request.get('origin');
+  if (origin === 'https://fyers.in') {
+    response.set({
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Private-Network': 'true',
+      Vary: 'Origin'
+    });
+  }
+  if (request.method === 'OPTIONS') return response.sendStatus(origin === 'https://fyers.in' ? 204 : 403);
+  next();
+});
 
 function createAuthState() {
   const payload = `${Date.now()}.${crypto.randomBytes(32).toString('base64url')}`;
@@ -73,10 +114,121 @@ function scheduleArchiveSave() {
     archiveSaveTimer = null;
     const archiveToWrite = structuredClone(sessionArchive);
     archiveWriteQueue = archiveWriteQueue
-      .then(() => writeSessionArchive(archivePath, archiveToWrite))
+      .then(() => documentStore.mode === 'postgres'
+        ? documentStore.write('session-profiles', archiveToWrite)
+        : writeSessionArchive(archivePath, archiveToWrite))
       .catch((error) => console.error('Could not persist session profiles:', error.message));
   }, 1000);
   archiveSaveTimer.unref();
+}
+
+function persistOrderflowHistory() {
+  const historyToWrite = structuredClone(orderflowHistory);
+  const write = orderflowWriteQueue.then(() => documentStore.mode === 'postgres'
+    ? documentStore.write('orderflow-history', historyToWrite)
+    : writeOrderflowHistory(orderflowHistoryPath, historyToWrite));
+  orderflowWriteQueue = write.catch((error) => {
+    console.error('Could not persist FYERS order-flow history:', error.message);
+  });
+  return write;
+}
+
+function persistTradeOutcomes() {
+  const journalToWrite = structuredClone(tradeOutcomes);
+  const write = tradeOutcomesWriteQueue.then(() => documentStore.mode === 'postgres'
+    ? documentStore.write('setup-outcomes', journalToWrite)
+    : writeTradeOutcomes(tradeOutcomesPath, journalToWrite));
+  tradeOutcomesWriteQueue = write.catch((error) => {
+    console.error('Could not persist setup outcomes:', error.message);
+  });
+  return write;
+}
+
+function normalizeOrderflowHistory(history, asOfDate) {
+  if (!history || typeof history !== 'object' || Array.isArray(history)) return {};
+  const dates = Object.keys(history).filter((date) => date <= asOfDate).sort().slice(-ORDERFLOW_RETENTION_SESSIONS);
+  return Object.fromEntries(dates.map((date) => [date, history[date]]));
+}
+
+async function readStoredSessionArchive(asOfDate) {
+  if (documentStore.mode === 'local-json') return readSessionArchive(archivePath, asOfDate);
+  const archive = await documentStore.read('session-profiles');
+  if (!archive || typeof archive !== 'object' || Array.isArray(archive)) return {};
+  return pruneSessions(archive, asOfDate);
+}
+
+async function readStoredOrderflowHistory(asOfDate) {
+  if (documentStore.mode === 'local-json') return readOrderflowHistory(orderflowHistoryPath, asOfDate);
+  return normalizeOrderflowHistory(await documentStore.read('orderflow-history'), asOfDate);
+}
+
+async function readStoredTradeOutcomes() {
+  if (documentStore.mode === 'local-json') return readTradeOutcomes(tradeOutcomesPath);
+  const journal = await documentStore.read('setup-outcomes');
+  if (!journal || typeof journal !== 'object' || Array.isArray(journal) || !Array.isArray(journal.signals)) {
+    return { signals: [] };
+  }
+  return journal;
+}
+
+function marketReadSessions(instrument) {
+  const currentDate = indiaDateKey();
+  const availableDates = [...new Set([
+    ...Object.keys(orderflowHistory),
+    ...Object.keys(sessionArchive)
+  ])].filter((date) => date < currentDate && isWeekday(date)).sort();
+  const priorSessions = availableDates.slice(isWeekday(currentDate) ? -1 : -2);
+  const dates = [...priorSessions, ...(isWeekday(currentDate) ? [currentDate] : [])];
+  const priorProfile = latestSessionBefore(sessionArchive, instrument, isWeekday(currentDate) ? currentDate : dates.at(-1) || currentDate);
+  if (priorProfile && !dates.includes(priorProfile.date)) dates.push(priorProfile.date);
+  dates.sort();
+  return dates.map((date) => {
+    const saved = orderflowHistory[date]?.[instrument] || {};
+    const profileSession = sessionArchive[date]?.[instrument] || {};
+    const current = date === currentDate ? instrumentState[instrument] : null;
+    return {
+      date,
+      symbol: saved.symbol || configuredInstruments[instrument] || null,
+      open: current?.open ?? profileSession.open ?? null,
+      high: current?.high ?? profileSession.high ?? null,
+      low: current?.low ?? profileSession.low ?? null,
+      close: current?.price ?? profileSession.close ?? null,
+      price: current?.price ?? profileSession.close ?? null,
+      vah: profileSession.vah ?? saved.valueArea?.vah ?? null,
+      poc: profileSession.poc ?? saved.valueArea?.poc ?? null,
+      val: profileSession.val ?? saved.valueArea?.val ?? null,
+      profile: saved.profile?.length
+        ? saved.profile
+        : Object.entries(profileSession.profile || {}).map(([price, volume]) => ({
+          price: Number(price),
+          volume: Number(volume)
+        })),
+      candles: saved.candles || {},
+      candleUpdatedAt: current?.fyersOrderflow?.candleUpdatedAt || saved.candleUpdatedAt || {},
+      footprintUpdatedAt: current?.fyersOrderflow?.candleUpdatedAt?.[5]
+        || current?.fyersOrderflow?.candleUpdatedAt?.['5']
+        || saved.candleUpdatedAt?.[5]
+        || saved.candleUpdatedAt?.['5']
+        || null,
+      updatedAt: current?.updatedAt || saved.updatedAt || null
+    };
+  });
+}
+
+function updateTradeOutcomeJournal(instrument, allowNewSignals = true) {
+  const sessions = marketReadSessions(instrument);
+  const analysis = analyzeMarketHistory({
+    sessions,
+    tickSize: instrumentTickSizes[instrument] || 0.05,
+    marketDay: isWeekday(indiaDateKey())
+  });
+  tradeOutcomes = recordTradeOutcomes(tradeOutcomes, {
+    instrument,
+    analysis,
+    sessions,
+    allowNewSignals: allowNewSignals && isWeekday(indiaDateKey())
+  });
+  return persistTradeOutcomes();
 }
 
 function previousSessionFor(instrument, beforeDate = indiaDateKey()) {
@@ -86,7 +238,14 @@ function previousSessionFor(instrument, beforeDate = indiaDateKey()) {
 function saveCurrentSession(instrument) {
   const state = instrumentState[instrument];
   const date = state.sessionDate;
-  const valueArea = calculateValueArea(state.profile.entries());
+  const fyersProfileFresh = Boolean(state.fyersOrderflow?.profileUpdatedAt
+    && Date.now() - Date.parse(state.fyersOrderflow.profileUpdatedAt) < 120000
+    && state.fyersOrderflow.profile.length);
+  const sessionProfile = fyersProfileFresh
+    ? state.fyersOrderflow.profile.map((level) => [level.price, level.volume])
+    : [...state.profile.entries()];
+  const valueArea = calculateValueArea(sessionProfile);
+  const profileSource = fyersProfileFresh ? 'FYERS_CHART' : state.profileSource;
   sessionArchive[date] ??= {};
   sessionArchive[date][instrument] = {
     open: state.open,
@@ -97,7 +256,8 @@ function saveCurrentSession(instrument) {
     poc: valueArea.poc,
     val: valueArea.val,
     totalVolume: valueArea.totalVolume,
-    profile: Object.fromEntries(state.profile),
+    profile: Object.fromEntries(sessionProfile),
+    profileSource,
     updatedAt: state.updatedAt
   };
   sessionArchive = pruneSessions(sessionArchive, date);
@@ -109,6 +269,7 @@ function restoreSession(instrument, date) {
   const saved = sessionArchive[date]?.[instrument];
   state.sessionDate = date;
   state.profile = new Map(Object.entries(saved?.profile || {}).map(([price, volume]) => [Number(price), Number(volume)]));
+  state.profileSource = saved?.profileSource || 'TICK_RULE_ESTIMATE';
   if (saved) {
     state.open = saved.open ?? null;
     state.high = saved.high ?? null;
@@ -118,13 +279,49 @@ function restoreSession(instrument, date) {
 }
 
 async function loadSessionArchive() {
+  await documentStore.initialize();
   try {
-    sessionArchive = await readSessionArchive(archivePath);
+    sessionArchive = await readStoredSessionArchive(indiaDateKey());
   } catch (error) {
     console.error('Could not load saved session profiles:', error.message);
+    if (documentStore.mode === 'postgres') throw error;
   }
   const today = indiaDateKey();
   for (const instrument of Object.keys(instrumentState)) restoreSession(instrument, today);
+  try {
+    orderflowHistory = await readStoredOrderflowHistory(today);
+  } catch (error) {
+    console.error('Could not load saved FYERS order-flow history:', error.message);
+    if (documentStore.mode === 'postgres') throw error;
+  }
+  try {
+    tradeOutcomes = await readStoredTradeOutcomes();
+  } catch (error) {
+    console.error('Could not load saved setup outcomes:', error.message);
+    if (documentStore.mode === 'postgres') throw error;
+  }
+  for (const instrument of Object.keys(instrumentState)) {
+    const saved = orderflowHistory[today]?.[instrument];
+    if (!saved) continue;
+    instrumentState[instrument].fyersOrderflow = {
+      symbol: saved.symbol,
+      updatedAt: saved.updatedAt,
+      footprintUpdatedAt: saved.footprintUpdatedAt || null,
+      profileUpdatedAt: saved.profileUpdatedAt || null,
+      candles: saved.candles || {},
+      candleUpdatedAt: saved.candleUpdatedAt || {},
+      profile: saved.profile || [],
+      valueArea: saved.valueArea || { vah: null, poc: null, val: null, totalVolume: 0 },
+      cvd: saved.cvd ?? null
+    };
+  }
+  for (const instrument of Object.keys(instrumentState)) {
+    try {
+      await updateTradeOutcomeJournal(instrument, false);
+    } catch (error) {
+      console.error(`Could not reconcile saved setup outcomes for ${instrument}:`, error.message);
+    }
+  }
 }
 
 function resetForNewSession(instrument, date) {
@@ -135,6 +332,8 @@ function resetForNewSession(instrument, date) {
   state.lastDirection = 0;
   state.delta = 0;
   state.cvd = 0;
+  state.fyersOrderflow = null;
+  state.profileSource = 'TICK_RULE_ESTIMATE';
   state.flow = [];
   state.orderflow = { 1: [], 3: [], 5: [], 15: [] };
   state.updatedAt = null;
@@ -183,6 +382,9 @@ app.get(['/auth/callback', '/api/auth/callback'], async (request, response) => {
     }
 
     accessToken = tokenResult.access_token;
+    if (Object.values(activeContracts).some((contract) => !contract || contract.expiryTimestamp <= Date.now())) {
+      await loadActiveFutures();
+    }
     startMarketSocket();
     response.redirect('/?connection=started');
   } catch {
@@ -196,55 +398,79 @@ function snapshot() {
   const instruments = {};
   for (const [key, symbol] of Object.entries(configuredInstruments)) {
     const state = instrumentState[key];
-    const valueArea = calculateValueArea(state.profile.entries());
+    const fyers = state.fyersOrderflow;
+    const now = Date.now();
+    const fyersProfileFresh = Boolean(fyers?.profileUpdatedAt && now - Date.parse(fyers.profileUpdatedAt) < 120000);
+    const fyersFootprintFresh = Boolean(fyers?.footprintUpdatedAt && now - Date.parse(fyers.footprintUpdatedAt) < 120000);
+    const freshFyersTimeframes = Object.fromEntries(Object.entries(fyers?.candles || {})
+      .filter(([timeframe]) => fyersFootprintFresh && fyers?.candleUpdatedAt?.[timeframe] && now - Date.parse(fyers.candleUpdatedAt[timeframe]) < 120000));
+    const profileEntries = fyersProfileFresh && fyers.profile.length
+      ? fyers.profile.map((level) => [level.price, level.volume])
+      : [...state.profile.entries()];
+    const valueArea = calculateValueArea(profileEntries);
     const priorSession = previousSessionFor(key, state.sessionDate);
-    const openingDirection = classifyOpening(state.open, priorSession);
+    const activeMarketSession = isWeekday(indiaDateKey()) && state.sessionDate === indiaDateKey();
+    const openingDirection = activeMarketSession
+      ? classifyOpening(state.open, priorSession)
+      : 'WAITING_FOR_MARKET_SESSION';
     const firstFlowBucket = Math.floor(Date.now() / 300000) * 300000 - 11 * 300000;
     const flowBuckets = Array.from({ length: 12 }, (_, index) => ({ time: firstFlowBucket + index * 300000, delta: 0 }));
     for (const tick of state.flow) {
       const index = Math.floor((tick.time - firstFlowBucket) / 300000);
       if (index >= 0 && index < flowBuckets.length) flowBuckets[index].delta += tick.delta;
     }
-    let profile = [];
-    let lvns = [];
-    if (state.profile.size) {
-      const tickSize = instrumentTickSizes[key] || 0.05;
-      const tradedPrices = [...state.profile.keys()];
-      const minimumPrice = Math.min(...tradedPrices, state.low ?? Infinity);
-      const maximumPrice = Math.max(...tradedPrices, state.high ?? -Infinity);
-      const bucketTicks = Math.max(1, Math.ceil((maximumPrice - minimumPrice) / (tickSize * 60)));
-      const bucketSize = bucketTicks * tickSize;
-      const minimumBucket = Math.floor(minimumPrice / bucketSize);
-      const maximumBucket = Math.floor(maximumPrice / bucketSize);
-      const volumes = new Map();
-      for (const [price, volume] of state.profile) {
-        const bucket = Math.floor(price / bucketSize);
-        volumes.set(bucket, (volumes.get(bucket) || 0) + volume);
-      }
-      profile = Array.from({ length: maximumBucket - minimumBucket + 1 }, (_, index) => {
-        const bucket = minimumBucket + index;
-        const price = Number((bucket * bucketSize).toFixed(8));
-        return { price, volume: volumes.get(bucket) || 0 };
-      });
-      const lvnIndices = [];
-      for (let index = 1; index < profile.length - 1; index += 1) {
-        const current = profile[index].volume;
-        const neighborThreshold = Math.min(profile[index - 1].volume, profile[index + 1].volume) * 0.5;
-        if (current > 0 && current < neighborThreshold) lvnIndices.push(index);
-      }
-      lvns = lvnIndices.map((index) => profile[index].price);
-      profile.forEach((level, index) => {
-        const bucket = Math.floor(level.price / bucketSize);
-        level.isVah = valueArea.vah !== null && bucket === Math.floor(valueArea.vah / bucketSize);
-        level.isVal = valueArea.val !== null && bucket === Math.floor(valueArea.val / bucketSize);
-        level.isPoc = valueArea.poc !== null && bucket === Math.floor(valueArea.poc / bucketSize);
-        level.inValueArea = valueArea.val !== null && level.price <= valueArea.vah && level.price + bucketSize > valueArea.val;
-        level.isLvn = lvnIndices.includes(index);
-        level.isDayLow = state.low !== null && bucket === Math.floor(state.low / bucketSize);
-      });
+    const tickSize = instrumentTickSizes[key] || 0.05;
+    const tradedPrices = profileEntries.map(([price]) => price);
+    const minimumPrice = Math.min(...tradedPrices, state.low ?? Infinity);
+    const maximumPrice = Math.max(...tradedPrices, state.high ?? -Infinity);
+    let profile = profileEntries.length ? buildProfileBins(profileEntries, tickSize) : [];
+    if (profile.length && Number.isFinite(minimumPrice) && Number.isFinite(maximumPrice)) {
+      profile = profile.map((level) => ({ ...level, volume: level.volume || 0 }));
     }
+    const todayLvnZones = detectLowVolumeZones(profile, valueArea).map((zone) => ({
+      ...zone,
+      date: state.sessionDate,
+      source: fyersProfileFresh ? 'FYERS_CHART' : state.profileSource
+    }));
+    const lvnIndices = new Set(todayLvnZones.flatMap((zone) => Array.from(
+      { length: zone.endIndex - zone.startIndex + 1 },
+      (_, index) => zone.startIndex + index
+    )));
+    profile.forEach((level, index) => {
+      level.isVah = valueArea.vah !== null && valueArea.vah >= level.price && valueArea.vah < level.high;
+      level.isVal = valueArea.val !== null && valueArea.val >= level.price && valueArea.val < level.high;
+      level.isPoc = valueArea.poc !== null && valueArea.poc >= level.price && valueArea.poc < level.high;
+      level.inValueArea = valueArea.val !== null && level.price <= valueArea.vah && level.high > valueArea.val;
+      level.isLvn = lvnIndices.has(index);
+      level.isDayLow = state.low !== null && state.low >= level.price && state.low < level.high;
+    });
+    const historicalLvnZones = untestedHistoricalLowVolumeZones(
+      sessionArchive,
+      key,
+      state.sessionDate,
+      profileEntries,
+      tickSize
+    );
+    const lvns = todayLvnZones.map((zone) => zone.center);
+    const fyersFiveMinute = freshFyersTimeframes[5]?.at(-1) || null;
+    const estimatedDelta = state.flow
+      .filter((tick) => tick.time >= now - 5 * 60 * 1000)
+      .reduce((total, tick) => total + tick.delta, 0);
+    const fyersOrderflow = fyers ? {
+      symbol: fyers.symbol,
+      updatedAt: fyers.updatedAt,
+      footprintUpdatedAt: fyers.footprintUpdatedAt,
+      profileUpdatedAt: fyers.profileUpdatedAt,
+      footprintFresh: fyersFootprintFresh,
+      profileFresh: fyersProfileFresh,
+      candleFresh: Object.fromEntries(Object.keys(fyers?.candles || {}).map((timeframe) => [timeframe, Boolean(freshFyersTimeframes[timeframe])])),
+      cvd: fyersProfileFresh ? fyers.cvd : null,
+      candles: fyers.candles,
+      candleUpdatedAt: fyers.candleUpdatedAt
+    } : null;
     instruments[key] = {
       symbol,
+      contract: activeContracts[key],
       configured: Boolean(symbol),
       sessionDate: state.sessionDate,
       price: state.price,
@@ -253,12 +479,22 @@ function snapshot() {
       open: state.open,
       high: state.high,
       low: state.low,
-      delta: state.flow.filter((tick) => tick.time >= Date.now() - 5 * 60 * 1000).reduce((total, tick) => total + tick.delta, 0),
-      cvd: state.cvd,
-      flow: state.flow.length ? flowBuckets : [],
-      orderflow: state.orderflow,
+      delta: fyersFiveMinute ? fyersFiveMinute.delta : estimatedDelta,
+      deltaSource: fyersFiveMinute ? 'FYERS_CHART' : 'TICK_RULE_ESTIMATE',
+      cvd: fyersProfileFresh ? fyers.cvd : state.cvd,
+      cvdSource: fyersProfileFresh ? 'FYERS_CHART' : 'TICK_RULE_ESTIMATE',
+      flow: freshFyersTimeframes[5]?.length
+        ? freshFyersTimeframes[5].slice(-12).map(({ time, delta }) => ({ time, delta }))
+        : state.flow.length ? flowBuckets : [],
+      flowSource: freshFyersTimeframes[5]?.length ? 'FYERS_CHART' : 'TICK_RULE_ESTIMATE',
+      orderflow: { ...state.orderflow, ...freshFyersTimeframes },
+      orderflowSource: Object.keys(freshFyersTimeframes).length ? 'FYERS_CHART' : 'TICK_RULE_ESTIMATE',
+      fyersOrderflow,
+      profileSource: fyersProfileFresh ? 'FYERS_CHART' : state.profileSource,
       profile,
       lvns,
+      todayLvnZones,
+      historicalLvnZones,
       session: {
         open: state.open,
         high: state.high,
@@ -298,27 +534,32 @@ function numberOrNull(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function isWeekday(date) {
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    timeZone: 'Asia/Kolkata'
+  }).format(new Date(`${date}T12:00:00+05:30`));
+  return weekday !== 'Sat' && weekday !== 'Sun';
+}
+
 async function loadActiveFutures() {
   const masters = [
-    { key: 'NIFTY', url: 'https://public.fyers.in/sym_details/NSE_FO.csv', pattern: /^NIFTY\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{2}\s+FUT$/i },
-    { key: 'SENSEX', url: 'https://public.fyers.in/sym_details/BSE_FO.csv', pattern: /^SENSEX\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{2}\s+FUT$/i }
+    { key: 'NIFTY', url: 'https://public.fyers.in/sym_details/NSE_FO.csv' },
+    { key: 'SENSEX', url: 'https://public.fyers.in/sym_details/BSE_FO.csv' }
   ];
-  const results = await Promise.allSettled(masters.map(async ({ key, url, pattern }) => {
+  const results = await Promise.allSettled(masters.map(async ({ key, url }) => {
     const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
     if (!response.ok) throw new Error(`FYERS symbol master returned ${response.status}`);
     const records = parse(await response.text(), { skip_empty_lines: true, relax_column_count: true });
-    const contracts = records
-      .filter((record) => pattern.test(String(record[1] || '').trim()) && Number(record[8]) * 1000 > Date.now())
-      .sort((a, b) => Number(a[8]) - Number(b[8]));
-    const contract = contracts[0];
-    if (!contract) throw new Error(`No active ${key} futures contract found`);
-    if (!configuredInstruments[key]) configuredInstruments[key] = String(contract[9]).trim();
-    instrumentTickSizes[key] = numberOrNull(contract[4]) || instrumentTickSizes[key];
+    const contract = selectFuturesContract(records, key, configuredInstruments[key]);
+    configuredInstruments[key] = contract.symbol;
+    activeContracts[key] = contract;
+    instrumentTickSizes[key] = numberOrNull(contract.tickSize) || instrumentTickSizes[key];
   }));
   const failed = results.filter((result) => result.status === 'rejected');
   connectionMessage = failed.length
     ? 'Could not load all active futures contracts. Check the server network connection.'
-    : 'Connect FYERS to start live market data.';
+    : `Active futures contracts loaded: ${Object.values(activeContracts).filter(Boolean).length}. Connect FYERS to start live market data.`;
   broadcast();
 }
 
@@ -397,11 +638,38 @@ function startMarketSocket() {
   connectionMessage = 'Connecting to FYERS market feed...';
   try {
     marketSocket = fyersDataSocket.getInstance(`${process.env.FYERS_APP_ID}:${accessToken}`, undefined, false);
+    const socket = marketSocket;
+    let subscriptionStarted = false;
+    let connectionAttempts = 0;
+    const subscribeWhenReady = () => {
+      if (socket !== marketSocket || subscriptionStarted) return;
+      if (socket.isConnected?.()) {
+        try {
+          socket.subscribe(symbols, false, 1);
+          socket.mode(socket.FullMode, 1);
+          subscriptionStarted = true;
+          connectionStatus = 'connected';
+          connectionMessage = 'Live FYERS feed connected. Delta uses tick-rule estimation.';
+        } catch {
+          connectionStatus = 'disconnected';
+          connectionMessage = 'FYERS feed connected but subscription could not start.';
+        }
+        broadcast();
+        return;
+      }
+      connectionAttempts += 1;
+      if (connectionAttempts >= 50) {
+        connectionStatus = 'disconnected';
+        connectionMessage = 'FYERS market socket did not become ready. Try reconnecting.';
+        broadcast();
+        return;
+      }
+      const retryTimer = setTimeout(subscribeWhenReady, 200);
+      retryTimer.unref();
+    };
+
     marketSocket.on('connect', () => {
-      connectionStatus = 'connected';
-      connectionMessage = 'Live FYERS feed connected. Delta uses tick-rule estimation.';
-      marketSocket.subscribe(symbols);
-      broadcast();
+      subscribeWhenReady();
     });
     marketSocket.on('message', handleMarketMessage);
     marketSocket.on('error', () => {
@@ -410,10 +678,12 @@ function startMarketSocket() {
       broadcast();
     });
     marketSocket.on('close', () => {
+      subscriptionStarted = false;
       connectionStatus = 'disconnected';
       connectionMessage = 'FYERS market feed closed.';
       broadcast();
     });
+    marketSocket.autoReconnect(50);
     marketSocket.connect();
   } catch {
     connectionStatus = 'disconnected';
@@ -431,6 +701,10 @@ app.get('/api/health', (_request, response) => {
   response.json({
     ok: true,
     mode: snapshot().mode,
+    persistence: {
+      mode: documentStore.mode,
+      durable: documentStore.mode === 'postgres'
+    },
     trading: false,
     timestamp: new Date().toISOString()
   });
@@ -440,13 +714,53 @@ app.get('/api/market-state', (_request, response) => {
   response.json(snapshot());
 });
 
+app.get('/api/orderflow-history/:instrument', (request, response) => {
+  const instrument = request.params.instrument.toUpperCase();
+  if (!Object.hasOwn(instrumentState, instrument)) {
+    return response.status(404).json({ error: 'Unsupported instrument' });
+  }
+
+  const currentDate = indiaDateKey();
+  const sessions = marketReadSessions(instrument);
+  response.json({
+    instrument,
+    marketDay: isWeekday(currentDate),
+    retentionSessions: 2,
+    contract: activeContracts[instrument],
+    tickSize: instrumentTickSizes[instrument] || 0.05,
+    sessions,
+    analysis: analyzeMarketHistory({
+      sessions,
+      tickSize: instrumentTickSizes[instrument] || 0.05,
+      marketDay: isWeekday(currentDate)
+    }),
+    outcomes: summarizeTradeOutcomes(tradeOutcomes, instrument)
+  });
+});
+
 app.get('/api/market-stream', (request, response) => {
-  response.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  response.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
   response.flushHeaders();
   response.write(`data: ${JSON.stringify(snapshot())}\n\n`);
   streamClients.add(response);
   request.on('close', () => streamClients.delete(response));
 });
+
+const streamHeartbeat = setInterval(() => {
+  for (const client of streamClients) {
+    if (client.destroyed || client.writableEnded) {
+      streamClients.delete(client);
+      continue;
+    }
+    client.write(': keep-alive\n\n');
+  }
+}, 25000);
+streamHeartbeat.unref();
 
 await loadSessionArchive();
 
@@ -457,4 +771,38 @@ loadActiveFutures().catch(() => {
 
 app.listen(port, () => {
   console.log(`Market dashboard running at http://localhost:${port}`);
+});
+
+app.post('/api/fyers-orderflow', async (request, response) => {
+  const remoteAddress = request.socket.remoteAddress;
+  if (!isAuthorizedCaptureRequest({
+    remoteAddress,
+    authorization: request.get('authorization'),
+    configuredToken: captureToken
+  })) {
+    return response.status(captureToken ? 401 : 503).json({
+      ok: false,
+      error: captureToken ? 'Invalid capture authorization' : 'Remote capture is disabled until LEGEND_CAPTURE_TOKEN is configured'
+    });
+  }
+  const { symbol, endpoint, payload, timeframe } = request.body || {};
+  const key = Object.keys(configuredInstruments).find((instrument) => configuredInstruments[instrument] === symbol)
+    || (/:NIFTY\d.*FUT$/i.test(symbol || '') ? 'NIFTY' : /:SENSEX\d.*FUT$/i.test(symbol || '') ? 'SENSEX' : null);
+  if (!key) return response.status(400).json({ ok: false, error: 'Unsupported FYERS futures symbol' });
+  try {
+    instrumentState[key].fyersOrderflow = mergeFyersOrderflow(instrumentState[key].fyersOrderflow, { symbol, endpoint, payload, timeframe });
+    orderflowHistory = mergeOrderflowHistory(orderflowHistory, {
+      date: instrumentState[key].sessionDate,
+      instrument: key,
+      orderflow: instrumentState[key].fyersOrderflow
+    });
+    await persistOrderflowHistory();
+    await updateTradeOutcomeJournal(key);
+    if (endpoint === '/orderflow/volume-profile') saveCurrentSession(key);
+    broadcast();
+    response.json({ ok: true, instrument: key, endpoint, updatedAt: instrumentState[key].fyersOrderflow.updatedAt });
+  } catch (error) {
+    console.error('Could not process FYERS order-flow capture:', error.message);
+    response.status(error instanceof TypeError ? 400 : 500).json({ ok: false, error: error.message });
+  }
 });

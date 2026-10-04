@@ -6,12 +6,15 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
+    "capture:fyers": "node scripts/capture-fyers-orderflow.js",
     "test": "node --test"
   },
   "dependencies": {
     "csv-parse": "^7.0.3",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "fyers-api-v3": "^2.3.0"
+    "fyers-api-v3": "^2.3.0",
+    "pg": "^8.23.1",
+    "puppeteer-core": "^25.12.0"
   }
 }
