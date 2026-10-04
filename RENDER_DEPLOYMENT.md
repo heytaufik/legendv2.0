@@ -4,7 +4,7 @@
 
 Session profiles, captured footprints, and simulated setup outcomes are stored in Neon PostgreSQL when `DATABASE_URL` is set. Without it, the app uses local JSON files under `DATA_DIR` (default `./data`); Render's ordinary service filesystem is ephemeral, so that fallback is not durable on Render.
 
-The remote FYERS capture endpoint is disabled unless `LEGEND_CAPTURE_TOKEN` is configured. The desktop capture process must send the same token over HTTPS. Do not put this token in browser code, source control, or a URL.
+The remote FYERS capture endpoint is disabled unless `LEGEND_CAPTURE_TOKEN` is configured. The desktop capture process must send the same token over HTTPS. Never put this token in page JavaScript, source control, or a URL.
 
 ## Create the Neon database
 
@@ -39,6 +39,12 @@ LEGEND_CAPTURE_TOKEN=the-same-random-secret-configured-in-render
 Then run `npm run capture:fyers`, log in to FYERS in the capture window, open the active futures Order Flow chart, and select the desired timeframe. The capture process forwards FYERS's numeric candle and price-level Ask/Bid payloads to the app over HTTPS. Keep that desktop process and chart running during market hours.
 
 The dashboard's Render service does not log in to FYERS's chart or generate footprint data on its own. If the desktop capture process is offline, the app can still show saved history and server-side market-feed data, but it cannot receive new numeric chart footprint payloads.
+
+### Violentmonkey alternative
+
+Install `scripts/violentmonkey-fyers-capture.user.js` in Violentmonkey, open the logged-in FYERS Order Flow chart, and use the Violentmonkey menu command **Set Legend Render capture token**. Paste the same `LEGEND_CAPTURE_TOKEN` configured in Render; the script stores it in Violentmonkey storage rather than in the script source. Keep the chart tab open during market hours and look for the **Legend capture** status badge.
+
+This direct browser-extension approach is less secure than the Node capture process: anyone able to inspect or compromise the browser profile or extension storage may obtain the write-only capture token and submit fabricated capture payloads. Rotate `LEGEND_CAPTURE_TOKEN` in Render and local `.env` if it is exposed, then update the Violentmonkey value. The userscript only sees page `fetch` and `XMLHttpRequest` responses; if FYERS changes its internal chart transport or uses a worker/WebSocket path, capture may need updating. Use `npm run capture:fyers` if the userscript does not show forwarded responses.
 
 ## Local development
 
