@@ -28,6 +28,17 @@ function formatTime(timestamp) {
   }).format(new Date(timestamp));
 }
 
+function formatFootprintDateTime(timestamp) {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(new Date(timestamp));
+}
+
 function formatSessionDate(date) {
   return new Intl.DateTimeFormat('en-IN', {
     weekday: 'short',
@@ -476,53 +487,53 @@ function renderOrderflow(instrument) {
   renderFyersCapture(instrument);
 }
 
-function renderTradeSummary(instrument) {
+function renderTradeSummary(data) {
   const summary = document.getElementById('market-summary-content');
   const panel = document.getElementById('market-summary-panel');
   const toggle = document.getElementById('market-summary-toggle');
   if (!summary || !panel || !toggle) return;
 
-  const conviction = instrument?.openingConviction || {};
-  const direction = conviction.direction || 'WAITING_OPEN';
-  const priceMove = Number.isFinite(instrument?.price) && Number.isFinite(instrument?.open)
-    ? instrument.price - instrument.open
-    : 0;
-  const delta = Number.isFinite(instrument?.delta) ? instrument.delta : 0;
-  const cvd = Number.isFinite(instrument?.cvd) ? instrument.cvd : 0;
-  const tickSize = 0.05;
-  const longBias = direction === 'UP' || (delta > 0 && cvd > 0 && priceMove > 0);
-  const shortBias = direction === 'DOWN' || (delta < 0 && cvd < 0 && priceMove < 0);
-  const continuation = longBias && priceMove > 0 ? 'Trend continuation' : shortBias && priceMove < 0 ? 'Trend continuation' : 'Reversal';
-  const biasText = direction === 'UP'
-    ? 'Bullish continuation bias'
-    : direction === 'DOWN'
-      ? 'Bearish continuation bias'
-      : direction === 'INSIDE'
-        ? 'Inside value / neutral read'
-        : 'Direction still forming';
-  const convictionText = direction === 'UP'
-    ? `Strong long conviction: price opened above the prior value area and delta is supporting upward continuation.`
-    : direction === 'DOWN'
-      ? `Strong short conviction: price opened below the prior value area and delta is supporting downward continuation.`
-      : direction === 'INSIDE'
-        ? 'Neutral mid-range read: price is inside the prior value area and the move is still being tested before direction is confirmed.'
-        : 'No strong directional conviction yet; live flow is still confirming the trend.';
-  const entry = Number.isFinite(instrument?.price)
-    ? `${formatNumber(instrument.price + (longBias ? tickSize : shortBias ? -tickSize : 0))}`
-    : '--';
-  const stop = Number.isFinite(instrument?.low) && Number.isFinite(instrument?.high)
-    ? `${formatNumber(shortBias ? Math.max(instrument.high, instrument.price) + tickSize : Math.min(instrument.low, instrument.price) - tickSize)}`
-    : '--';
-  const target = Number.isFinite(instrument?.price)
-    ? `${formatNumber(instrument.price + (longBias ? 2 * tickSize : shortBias ? -2 * tickSize : 0))}`
-    : '--';
+  const analysis = data?.analysis;
+  if (!analysis) return;
+  const plan = analysis.tradePlan;
+  const direction = plan?.direction || analysis.trendDirection;
+  const directionLabel = direction === 'UP' ? 'Bullish / long'
+    : direction === 'DOWN' ? 'Bearish / short'
+      : 'Mixed / no confirmed direction';
+  const setupType = plan
+    ? analysis.trendDirection !== 'MIXED' && plan.direction !== analysis.trendDirection
+      ? 'Reversal'
+      : 'Trend continuation'
+    : 'No qualified setup';
+  const currentMove = Number.isFinite(analysis.sessionMove)
+    ? `${formatSigned(analysis.sessionMove, ' pts')} from session open (${formatNumber(analysis.sessionOpen)}); latest price ${formatNumber(analysis.currentPrice)}.`
+    : 'Session move is not available yet.';
+  const deltaSummary = `5-minute structure: ${analysis.trendDirection.toLowerCase()}; recent footprint delta ${formatSigned(analysis.recentDelta)} (${analysis.deltaAlignment.toLowerCase()}); session CVD ${formatSigned(analysis.cumulativeDelta)}.`;
+  const imbalance = analysis.lastImbalance?.direction && analysis.lastImbalance.direction !== 'NONE'
+    ? `${analysis.lastImbalance.direction === 'UP' ? 'Buy' : 'Sell'} stacked imbalance ×${analysis.lastImbalance.direction === 'UP' ? analysis.lastImbalance.buyStack : analysis.lastImbalance.sellStack}.`
+    : 'No qualifying stacked diagonal imbalance in the latest completed footprint.';
+  const conviction = plan
+    ? `${directionLabel} bias · evidence ${plan.evidenceScore}/100. This is a rule-confluence score, not a win probability.`
+    : `${directionLabel} bias, but no qualified entry is available. ${analysis.reason}`;
+  const setupDetails = plan
+    ? `${setupType} setup: ${plan.model}. ${analysis.reason}`
+    : `${setupType}. The engine will only identify a reversal or continuation after its completed-candle, footprint, level-reaction, freshness, and risk/reward conditions are met.`;
 
-  summary.innerHTML = `
-    <p><strong>Direction conviction:</strong> ${biasText}. ${convictionText}</p>
-    <p><strong>Current market move:</strong> ${Number.isFinite(priceMove) ? `${formatSigned(priceMove, ' pts')} from the session open` : 'Move is not available'}; latest delta is ${formatSigned(delta)} and session CVD is ${formatSigned(cvd)}.</p>
-    <p><strong>Setup read:</strong> ${continuation}. ${continuation === 'Trend continuation' ? 'The flow is aligning with the active move, so the trade is treated as continuation unless price rejects the key value area.' : 'The flow is contradicting the move, so the trade is treated as a reversal until the rejection is confirmed by a strong close.'}</p>
-    <p><strong>Entry logic:</strong> ${continuation === 'Trend continuation' ? 'Wait for a fresh reaction near the move in the current footprint and use the current price as the trigger zone.' : 'Look for a rejection against the prior value edge and fade into strength only after the flow confirms the reversal.'} The live trigger is near ${entry}, with stop ${stop} and target ${target}.</p>
-  `;
+  summary.replaceChildren();
+  const addSummaryLine = (label, text) => {
+    const paragraph = document.createElement('p');
+    const heading = document.createElement('strong');
+    heading.textContent = `${label}: `;
+    paragraph.append(heading, document.createTextNode(text));
+    summary.append(paragraph);
+  };
+  addSummaryLine('Direction conviction', conviction);
+  addSummaryLine('Current market move', `${currentMove} ${analysis.priceVsPreviousValue.replaceAll('_', ' ').toLowerCase()} versus prior value.`);
+  addSummaryLine('Footprint read', `${analysis.marketBehavior} ${deltaSummary} ${imbalance}`);
+  addSummaryLine('Setup interpretation', setupDetails);
+  addSummaryLine('Entry logic', plan
+    ? `Trigger ${formatNumber(plan.entry)} · stop ${formatNumber(plan.stop)} · target ${formatNumber(plan.target)} · risk/reward 1:${numberFormat.format(plan.riskReward)} · ${plan.status.replaceAll('_', ' ')}. Evidence: ${plan.evidence.map((factor) => `${factor.name} ${factor.points}/${factor.maxPoints}`).join('; ')}`
+    : 'No entry trigger is being suggested. Wait for the full setup conditions; do not infer an entry from price, opening location, or estimated tick delta alone.');
 
   const isOpen = !panel.hidden;
   toggle.textContent = isOpen ? 'Hide live trade summary' : 'Show live trade summary';
@@ -601,7 +612,6 @@ function updateInstrument() {
   updateProfile(instrument);
   renderOverviewCapture(instrument);
   renderOpeningConviction(instrument);
-  renderTradeSummary(instrument);
   renderFlow(instrument.flow);
 }
 
@@ -617,6 +627,7 @@ function renderMarketRead(data) {
   const analysis = data.analysis;
   const current = data.sessions.at(-1);
   const previous = data.sessions.find((session) => session.date === analysis.previousDate);
+  renderTradeSummary(data);
   document.getElementById('market-read-title').textContent = `${data.instrument} · Detailed market read`;
   const status = document.getElementById('market-read-status');
   const dataTime = current?.updatedAt ? formatTime(Date.parse(current.updatedAt)) : 'unknown';
