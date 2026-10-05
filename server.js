@@ -472,9 +472,11 @@ function snapshot() {
       footprintFresh: fyersFootprintFresh,
       profileFresh: fyersProfileFresh,
       candleFresh: Object.fromEntries(Object.keys(fyers?.candles || {}).map((timeframe) => [timeframe, Boolean(freshFyersTimeframes[timeframe])])),
-      cvd: fyersProfileFresh ? fyers.cvd : null,
+      cvd: fyers.cvd,
       candles: fyers.candles,
-      candleUpdatedAt: fyers.candleUpdatedAt
+      candleUpdatedAt: fyers.candleUpdatedAt,
+      profile: fyers.profile,
+      valueArea: fyers.valueArea
     } : null;
     instruments[key] = {
       symbol,

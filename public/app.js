@@ -326,6 +326,69 @@ function drawCvdChart(bars, emptyMessage) {
   context.fillText(formatTime(bars.at(-1).time), width - margin.right, canvasHeight - 5);
 }
 
+function renderFyersCapture(instrument) {
+  const capture = instrument.fyersOrderflow;
+  const status = document.getElementById('capture-status');
+  const levelsContainer = document.getElementById('capture-levels');
+  const candles = capture?.candles?.[selectedTimeframe] || capture?.candles?.[String(selectedTimeframe)] || [];
+  const candle = candles.at(-1);
+  const profile = capture?.profile || [];
+  const candleFresh = Boolean(capture?.candleFresh?.[selectedTimeframe] || capture?.candleFresh?.[String(selectedTimeframe)]);
+  const profileFresh = Boolean(capture?.profileFresh);
+  const hasCapture = Boolean(candle || profile.length);
+
+  status.textContent = !hasCapture ? 'NO CAPTURE' : candleFresh || profileFresh ? 'FYERS · LIVE' : 'FYERS · SAVED';
+  status.dataset.state = !hasCapture ? 'empty' : candleFresh || profileFresh ? 'live' : 'saved';
+  document.getElementById('capture-data-source').textContent = hasCapture
+    ? `${capture.symbol} · captured from FYERS Order Flow`
+    : `Waiting for FYERS Order Flow capture for ${capture?.symbol || instrument.symbol}`;
+  document.getElementById('capture-candle-time').textContent = candle
+    ? `${selectedTimeframe}m · ${formatTime(candle.time)} IST`
+    : '--';
+  document.getElementById('capture-ohlc').textContent = candle
+    ? `${formatNumber(candle.open)} / ${formatNumber(candle.high)} / ${formatNumber(candle.low)} / ${formatNumber(candle.close)}`
+    : '--';
+  document.getElementById('capture-ask-volume').textContent = candle ? formatNumber(candle.positiveVolume) : '--';
+  document.getElementById('capture-bid-volume').textContent = candle ? formatNumber(candle.negativeVolume) : '--';
+  document.getElementById('capture-delta').textContent = candle ? formatSigned(candle.delta) : '--';
+  document.getElementById('capture-cvd').textContent = candle ? formatSigned(candle.cvd) : formatSigned(capture?.cvd);
+  document.getElementById('capture-profile-count').textContent = profile.length
+    ? `${profile.length} prices · ${formatNumber(capture.valueArea?.totalVolume)} volume`
+    : '--';
+
+  levelsContainer.replaceChildren();
+  const levels = [...(candle?.levels || [])].sort((left, right) => right.price - left.price);
+  if (!levels.length) {
+    const empty = document.createElement('div');
+    empty.className = 'footprint-empty';
+    empty.textContent = hasCapture
+      ? 'This capture has no per-price footprint levels.'
+      : 'Waiting for a FYERS footprint capture. No estimated Bid/Ask data is shown here.';
+    levelsContainer.append(empty);
+    return;
+  }
+
+  levels.forEach((level) => {
+    const row = document.createElement('div');
+    row.className = 'footprint-row';
+    row.setAttribute('role', 'row');
+    const delta = level.positiveVolume - level.negativeVolume;
+    [
+      formatNumber(level.price),
+      formatNumber(level.negativeVolume),
+      formatNumber(level.positiveVolume),
+      formatSigned(delta)
+    ].forEach((value, index) => {
+      const cell = document.createElement('span');
+      cell.textContent = value;
+      cell.setAttribute('role', 'cell');
+      if (index === 3) cell.classList.toggle(delta >= 0 ? 'positive' : 'negative', true);
+      row.append(cell);
+    });
+    levelsContainer.append(row);
+  });
+}
+
 function renderOrderflow(instrument) {
   const contract = instrument.contract;
   document.getElementById('chart-instrument-title').textContent = contract
@@ -372,6 +435,7 @@ function renderOrderflow(instrument) {
   drawPriceChart(bars.slice(-80), emptyMessage);
   drawDeltaChart(bars.slice(-80), emptyMessage);
   drawCvdChart(bars.slice(-80), emptyMessage);
+  renderFyersCapture(instrument);
 }
 
 function renderOpeningConviction(instrument) {

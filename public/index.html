@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/conviction.css">
   <link rel="stylesheet" href="/orderflow-large.css">
   <link rel="stylesheet" href="/orderflow-summary.css">
+  <link rel="stylesheet" href="/capture-details.css">
   <link rel="stylesheet" href="/market-read.css">
   <link rel="stylesheet" href="/brand.css">
 </head>
@@ -61,6 +62,22 @@
           <article class="chart-panel"><div class="chart-panel-heading"><h3>Price candles</h3><span>OHLC from traded-price updates</span></div><canvas id="orderflow-candles" aria-label="Tick-derived price candles"></canvas></article>
           <article class="chart-panel"><div class="chart-panel-heading"><h3>Delta</h3><span id="delta-chart-source">Tick-rule estimate</span></div><canvas id="delta-chart" aria-label="Estimated buy and sell delta by candle"></canvas></article>
           <article class="chart-panel"><div class="chart-panel-heading"><h3>Cumulative volume delta</h3><span id="cvd-chart-source">Since feed connection</span></div><canvas id="cvd-chart" aria-label="Cumulative estimated volume delta"></canvas></article>
+          <article class="chart-panel capture-details-panel">
+            <div class="chart-panel-heading"><div><h3>FYERS capture details</h3><span id="capture-data-source">Waiting for captured Order Flow data</span></div><span class="capture-status" id="capture-status">NO CAPTURE</span></div>
+            <div class="capture-summary">
+              <div><span>CAPTURED CANDLE</span><strong id="capture-candle-time">--</strong></div>
+              <div><span>OHLC</span><strong id="capture-ohlc">--</strong></div>
+              <div><span>ASK VOLUME</span><strong id="capture-ask-volume">--</strong></div>
+              <div><span>BID VOLUME</span><strong id="capture-bid-volume">--</strong></div>
+              <div><span>BAR DELTA</span><strong id="capture-delta">--</strong></div>
+              <div><span>SESSION CVD</span><strong id="capture-cvd">--</strong></div>
+              <div><span>SESSION PROFILE</span><strong id="capture-profile-count">--</strong></div>
+            </div>
+            <div class="footprint-table-wrap">
+              <div class="footprint-row footprint-header" aria-hidden="true"><span>PRICE</span><span>BID</span><span>ASK</span><span>DELTA</span></div>
+              <div id="capture-levels" class="footprint-levels" role="table" aria-label="Latest captured FYERS bid and ask volumes by price"></div>
+            </div>
+          </article>
         </div>
         <article class="chart-profile-panel"><div class="chart-panel-heading"><div><h3>Volume distribution</h3><span>Tick price / traded volume</span></div><span class="live-dot" id="chart-profile-status">COLLECTING</span></div><div class="levels chart-levels"><div><span>VAH</span><strong id="chart-vah">--</strong></div><div class="poc"><span>POC</span><strong id="chart-poc">--</strong></div><div><span>VAL</span><strong id="chart-val">--</strong></div></div><div class="profile-readouts"><div><span>SESSION LOW</span><strong id="chart-profile-low">--</strong></div><div><span>LOW VOLUME NODES</span><strong id="chart-lvns">--</strong></div></div><div class="profile-legend"><span class="legend-value">VALUE AREA</span><span class="legend-poc">POC</span><span class="legend-low">SESSION LOW</span><span class="legend-lvn">LVN</span></div><div class="profile-chart" id="chart-profile" aria-label="Orderflow chart volume profile"></div></article>
       </div>
