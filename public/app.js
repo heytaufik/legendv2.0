@@ -476,6 +476,58 @@ function renderOrderflow(instrument) {
   renderFyersCapture(instrument);
 }
 
+function renderTradeSummary(instrument) {
+  const summary = document.getElementById('market-summary-content');
+  const panel = document.getElementById('market-summary-panel');
+  const toggle = document.getElementById('market-summary-toggle');
+  if (!summary || !panel || !toggle) return;
+
+  const conviction = instrument?.openingConviction || {};
+  const direction = conviction.direction || 'WAITING_OPEN';
+  const priceMove = Number.isFinite(instrument?.price) && Number.isFinite(instrument?.open)
+    ? instrument.price - instrument.open
+    : 0;
+  const delta = Number.isFinite(instrument?.delta) ? instrument.delta : 0;
+  const cvd = Number.isFinite(instrument?.cvd) ? instrument.cvd : 0;
+  const tickSize = 0.05;
+  const longBias = direction === 'UP' || (delta > 0 && cvd > 0 && priceMove > 0);
+  const shortBias = direction === 'DOWN' || (delta < 0 && cvd < 0 && priceMove < 0);
+  const continuation = longBias && priceMove > 0 ? 'Trend continuation' : shortBias && priceMove < 0 ? 'Trend continuation' : 'Reversal';
+  const biasText = direction === 'UP'
+    ? 'Bullish continuation bias'
+    : direction === 'DOWN'
+      ? 'Bearish continuation bias'
+      : direction === 'INSIDE'
+        ? 'Inside value / neutral read'
+        : 'Direction still forming';
+  const convictionText = direction === 'UP'
+    ? `Strong long conviction: price opened above the prior value area and delta is supporting upward continuation.`
+    : direction === 'DOWN'
+      ? `Strong short conviction: price opened below the prior value area and delta is supporting downward continuation.`
+      : direction === 'INSIDE'
+        ? 'Neutral mid-range read: price is inside the prior value area and the move is still being tested before direction is confirmed.'
+        : 'No strong directional conviction yet; live flow is still confirming the trend.';
+  const entry = Number.isFinite(instrument?.price)
+    ? `${formatNumber(instrument.price + (longBias ? tickSize : shortBias ? -tickSize : 0))}`
+    : '--';
+  const stop = Number.isFinite(instrument?.low) && Number.isFinite(instrument?.high)
+    ? `${formatNumber(shortBias ? Math.max(instrument.high, instrument.price) + tickSize : Math.min(instrument.low, instrument.price) - tickSize)}`
+    : '--';
+  const target = Number.isFinite(instrument?.price)
+    ? `${formatNumber(instrument.price + (longBias ? 2 * tickSize : shortBias ? -2 * tickSize : 0))}`
+    : '--';
+
+  summary.innerHTML = `
+    <p><strong>Direction conviction:</strong> ${biasText}. ${convictionText}</p>
+    <p><strong>Current market move:</strong> ${Number.isFinite(priceMove) ? `${formatSigned(priceMove, ' pts')} from the session open` : 'Move is not available'}; latest delta is ${formatSigned(delta)} and session CVD is ${formatSigned(cvd)}.</p>
+    <p><strong>Setup read:</strong> ${continuation}. ${continuation === 'Trend continuation' ? 'The flow is aligning with the active move, so the trade is treated as continuation unless price rejects the key value area.' : 'The flow is contradicting the move, so the trade is treated as a reversal until the rejection is confirmed by a strong close.'}</p>
+    <p><strong>Entry logic:</strong> ${continuation === 'Trend continuation' ? 'Wait for a fresh reaction near the move in the current footprint and use the current price as the trigger zone.' : 'Look for a rejection against the prior value edge and fade into strength only after the flow confirms the reversal.'} The live trigger is near ${entry}, with stop ${stop} and target ${target}.</p>
+  `;
+
+  const isOpen = !panel.hidden;
+  toggle.textContent = isOpen ? 'Hide live trade summary' : 'Show live trade summary';
+}
+
 function renderOpeningConviction(instrument) {
   const conviction = instrument.openingConviction || {};
   const labels = {
@@ -549,6 +601,7 @@ function updateInstrument() {
   updateProfile(instrument);
   renderOverviewCapture(instrument);
   renderOpeningConviction(instrument);
+  renderTradeSummary(instrument);
   renderFlow(instrument.flow);
 }
 
@@ -767,6 +820,16 @@ instrumentButtons.forEach((button) => {
 document.getElementById('market-read-toggle').addEventListener('click', openMarketRead);
 document.getElementById('market-read-refresh').addEventListener('click', openMarketRead);
 document.getElementById('market-read-back').addEventListener('click', () => setView('overview'));
+
+const marketSummaryPanel = document.getElementById('market-summary-panel');
+const marketSummaryToggle = document.getElementById('market-summary-toggle');
+marketSummaryToggle.addEventListener('click', () => {
+  const nextHidden = !marketSummaryPanel.hidden;
+  marketSummaryPanel.hidden = nextHidden;
+  marketSummaryToggle.textContent = nextHidden ? 'Show live trade summary' : 'Hide live trade summary';
+});
+marketSummaryPanel.hidden = true;
+marketSummaryToggle.textContent = 'Show live trade summary';
 
 const stream = new EventSource('/api/market-stream');
 stream.addEventListener('message', (event) => {

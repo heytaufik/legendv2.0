@@ -54,11 +54,19 @@
     <section class="market-read-view" id="market-read-view" hidden aria-live="polite">
       <div class="market-read-heading">
         <div><p class="eyebrow">COMBINED MARKET CONTEXT</p><h2 id="market-read-title">NIFTY · Detailed market read</h2></div>
-        <div class="market-read-actions"><button class="chart-toggle" id="market-read-refresh" type="button">Refresh analysis</button><button class="chart-toggle" id="market-read-back" type="button">Back to dashboard</button></div>
+        <div class="market-read-actions">
+          <button class="chart-toggle" id="market-summary-toggle" type="button">Show live trade summary</button>
+          <button class="chart-toggle" id="market-read-refresh" type="button">Refresh analysis</button>
+          <button class="chart-toggle" id="market-read-back" type="button">Back to dashboard</button>
+        </div>
       </div>
       <p class="market-read-status" id="market-read-status">Loading saved footprint history…</p>
       <p class="market-read-story" id="read-session-story">Waiting for saved market context.</p>
       <p class="market-read-behavior" id="read-market-behavior">Waiting for actual FYERS footprint evidence.</p>
+      <article class="market-summary-panel" id="market-summary-panel" hidden aria-live="polite">
+        <div class="market-summary-header"><div><p class="eyebrow">LIVE TRADE SUMMARY</p><h3>Direction, conviction, and entry logic</h3></div></div>
+        <div class="market-summary-content" id="market-summary-content"></div>
+      </article>
       <div class="market-read-grid">
         <article class="market-read-card"><span id="read-session-move-label">SESSION MOVE</span><strong id="read-session-move">--</strong><small id="read-session-range">Waiting for session data</small></article>
         <article class="market-read-card"><span>5-MIN STRUCTURE</span><strong id="read-structure">--</strong><small id="read-structure-detail">Completed candles only</small></article>
