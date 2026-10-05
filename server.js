@@ -12,7 +12,7 @@ import { mergeFyersOrderflow } from './lib/fyers-orderflow.js';
 import { mergeOrderflowHistory, ORDERFLOW_RETENTION_SESSIONS, readOrderflowHistory, writeOrderflowHistory } from './lib/orderflow-history.js';
 import { analyzeMarketHistory } from './lib/market-analysis.js';
 import { selectFuturesContract } from './lib/futures-contract.js';
-import { readTradeOutcomes, recordTradeOutcomes, summarizeTradeOutcomes, writeTradeOutcomes } from './lib/trade-outcomes.js';
+import { listOpenDemoTrades, readTradeOutcomes, recordTradeOutcomes, summarizeTradeOutcomes, writeTradeOutcomes } from './lib/trade-outcomes.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -224,20 +224,24 @@ function marketReadSessions(instrument) {
   });
 }
 
-function updateTradeOutcomeJournal(instrument, allowNewSignals = true) {
+function updateTradeOutcomeJournal(instrument, allowNewSignals = true, { livePrice = null, previousPrice = null } = {}) {
   const sessions = marketReadSessions(instrument);
   const analysis = analyzeMarketHistory({
     sessions,
     tickSize: instrumentTickSizes[instrument] || 0.05,
     marketDay: isWeekday(indiaDateKey())
   });
-  tradeOutcomes = recordTradeOutcomes(tradeOutcomes, {
+  const nextOutcomes = recordTradeOutcomes(tradeOutcomes, {
     instrument,
     analysis,
     sessions,
+    livePrice,
+    previousPrice,
     allowNewSignals: allowNewSignals && isWeekday(indiaDateKey())
   });
-  return persistTradeOutcomes();
+  const changed = JSON.stringify(nextOutcomes) !== JSON.stringify(tradeOutcomes);
+  if (changed) tradeOutcomes = nextOutcomes;
+  return changed ? persistTradeOutcomes() : Promise.resolve();
 }
 
 function previousSessionFor(instrument, beforeDate = indiaDateKey()) {
@@ -587,6 +591,7 @@ function handleMarketMessage(message) {
   const state = instrumentState[key];
   const marketDate = indiaDateKey();
   if (state.sessionDate !== marketDate) resetForNewSession(key, marketDate);
+  const previousPrice = state.price;
   const price = numberOrNull(message.ltp ?? message.last_price ?? message.price);
   const volume = numberOrNull(message.vol_traded_today ?? message.volume);
 
@@ -634,6 +639,10 @@ function handleMarketMessage(message) {
   state.low = numberOrNull(message.low_price ?? message.low) ?? state.low;
   state.updatedAt = new Date().toISOString();
   saveCurrentSession(key);
+  if (price !== null && tradeOutcomes.signals.some((signal) => signal.instrument === key && signal.status !== 'RESOLVED')) {
+    void updateTradeOutcomeJournal(key, false, { livePrice: price, previousPrice })
+      .catch((error) => console.error(`Could not update live demo setup for ${key}:`, error.message));
+  }
   broadcast();
 }
 
@@ -766,7 +775,8 @@ app.get('/api/orderflow-history/:instrument', (request, response) => {
       tickSize: instrumentTickSizes[instrument] || 0.05,
       marketDay: isWeekday(currentDate)
     }),
-    outcomes: summarizeTradeOutcomes(tradeOutcomes, instrument)
+    outcomes: summarizeTradeOutcomes(tradeOutcomes, instrument),
+    demoTrades: listOpenDemoTrades(tradeOutcomes, instrument, currentDate, instrumentState[instrument].price)
   });
 });
 

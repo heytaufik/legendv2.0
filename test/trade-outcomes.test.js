@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { readTradeOutcomes, recordTradeOutcomes, summarizeTradeOutcomes, writeTradeOutcomes } from '../lib/trade-outcomes.js';
+import { listOpenDemoTrades, readTradeOutcomes, recordTradeOutcomes, summarizeTradeOutcomes, writeTradeOutcomes } from '../lib/trade-outcomes.js';
 
 const signalTime = Date.parse('2026-10-05T09:15:00+05:30');
 const instrument = 'NIFTY';
@@ -62,6 +62,66 @@ test('records a rule-based setup once and tracks trigger then target outcome', (
   });
   assert.equal(journal.signals[0].outcome, 'TARGET');
   assert.equal(journal.signals[0].rMultiple, 2);
+});
+
+test('opens a demo trade only when live price crosses its trigger and resolves from live target', () => {
+  const setupCandle = marketCandle(signalTime, { high: 101, low: 100, close: 101 });
+  let journal = recordTradeOutcomes({ signals: [] }, {
+    instrument,
+    analysis: planAnalysis(),
+    sessions: setupSessions([setupCandle]),
+    now: signalTime + 5 * 60000,
+    livePrice: 101.9,
+    previousPrice: 101.8
+  });
+  assert.equal(journal.signals[0].status, 'WAITING_FOR_TRIGGER');
+
+  journal = recordTradeOutcomes(journal, {
+    instrument,
+    analysis: { tradePlan: null },
+    sessions: setupSessions([setupCandle]),
+    now: signalTime + 6 * 60000,
+    livePrice: 102.1,
+    previousPrice: 101.9
+  });
+  assert.equal(journal.signals[0].status, 'ACTIVE');
+  assert.equal(journal.signals[0].demoEntryPrice, 102);
+
+  journal = recordTradeOutcomes(journal, {
+    instrument,
+    analysis: { tradePlan: null },
+    sessions: setupSessions([setupCandle]),
+    now: signalTime + 7 * 60000,
+    livePrice: 108,
+    previousPrice: 107.9
+  });
+  assert.equal(journal.signals[0].status, 'RESOLVED');
+  assert.equal(journal.signals[0].outcome, 'TARGET');
+});
+
+test('lists saved waiting and active demo setups with live unrealized R', () => {
+  const journal = recordTradeOutcomes({ signals: [] }, {
+    instrument,
+    analysis: planAnalysis(),
+    sessions: setupSessions([marketCandle(signalTime, { high: 101, low: 100, close: 101 })]),
+    now: signalTime + 5 * 60000
+  });
+  const waiting = listOpenDemoTrades(journal, instrument, '2026-10-05', 101.5);
+  assert.equal(waiting.length, 1);
+  assert.equal(waiting[0].status, 'WAITING_FOR_TRIGGER');
+  assert.equal(waiting[0].unrealizedR, null);
+
+  const active = recordTradeOutcomes(journal, {
+    instrument,
+    analysis: { tradePlan: null },
+    sessions: setupSessions([marketCandle(signalTime, { high: 101, low: 100, close: 101 })]),
+    now: signalTime + 6 * 60000,
+    livePrice: 102,
+    previousPrice: 101
+  });
+  const open = listOpenDemoTrades(active, instrument, '2026-10-05', 105);
+  assert.equal(open[0].status, 'ACTIVE');
+  assert.equal(open[0].unrealizedR, 1);
 });
 
 test('excludes same-bar stop/target ambiguity and signals that expire without a trigger', () => {

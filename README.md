@@ -2,6 +2,8 @@
 
 A read-only FYERS market dashboard for NIFTY and SENSEX futures. The app does not place orders.
 
+Setup evaluation explains its continuation/reversal evidence using completed five-minute structure, actual captured bid/ask footprint, prior/current session value levels, highs/lows, HVNs/LVNs, delta, and aggressive volume at tested profile levels. Qualified setups are saved to the existing setup journal; the demo tracker marks a simulated entry only when live FYERS price crosses its trigger and never places a broker order.
+
 ## Run locally
 
 1. Install Node.js 20 or newer.

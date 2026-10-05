@@ -84,6 +84,9 @@ test('combines price structure, delta, location, stacked footprint and opening c
   assert.ok(analysis.tradePlan.riskReward >= 1);
   assert.equal(analysis.tradePlan.status, 'TRIGGER_NEAR');
   assert.equal(analysis.tradePlan.evidence.reduce((total, factor) => total + factor.points, 0), 100);
+  assert.equal(analysis.aggressiveFlow.direction, 'UP');
+  assert.ok(analysis.aggressiveAtImportantLevels.some((level) => level.name === 'Session POC' && level.direction === 'UP'));
+  assert.ok(analysis.confluences.some((factor) => factor.name === 'aggressive bid/ask volume agrees' && factor.present));
 });
 
 test('does not offer a plan from stale captures', () => {

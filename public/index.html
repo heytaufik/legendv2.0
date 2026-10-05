@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/orderflow-summary.css">
   <link rel="stylesheet" href="/capture-details.css">
   <link rel="stylesheet" href="/market-read.css">
+  <link rel="stylesheet" href="/setup-evolution.css">
   <link rel="stylesheet" href="/brand.css">
 </head>
 <body>
@@ -93,6 +94,7 @@
       </div>
       <p class="market-read-status" id="market-read-status">Loading saved footprint history…</p>
       <p class="market-read-story" id="read-session-story">Waiting for saved market context.</p>
+      <p class="market-read-behavior" id="read-market-behavior">Waiting for actual FYERS footprint evidence.</p>
       <div class="market-read-grid">
         <article class="market-read-card"><span id="read-session-move-label">SESSION MOVE</span><strong id="read-session-move">--</strong><small id="read-session-range">Waiting for session data</small></article>
         <article class="market-read-card"><span>5-MIN STRUCTURE</span><strong id="read-structure">--</strong><small id="read-structure-detail">Completed candles only</small></article>
@@ -107,7 +109,12 @@
         <div class="market-read-panel-heading"><div><p class="eyebrow">SETUP EVALUATION</p><h3 id="read-plan-title">No entry plan yet</h3></div><span class="evidence-score" id="read-evidence-score">--</span></div>
         <p class="market-read-reason" id="read-plan-reason">Waiting for complete current and previous-session data.</p>
         <div class="market-read-plan" id="read-plan-details"></div>
-        <p class="market-read-disclaimer">Evidence score is rule confluence, not a win probability. No entry is suggested unless the combined evidence, price trigger and minimum 1:1 risk/reward all qualify.</p>
+        <div class="market-read-confluences" id="read-confluences" aria-label="Setup evidence and confluences"></div>
+        <section class="demo-trades">
+          <div class="demo-trades-heading"><h4>DEMO TRADE TRACKER</h4><span>SIMULATED · NO ORDERS</span></div>
+          <div id="read-demo-trades" class="demo-trade-list" aria-live="polite"></div>
+        </section>
+        <p class="market-read-disclaimer">Evidence score is rule confluence, not a win probability. Demo trades activate only when live FYERS price reaches the entry trigger; they are not broker orders. No entry is suggested unless the combined evidence and minimum 1:1 risk/reward qualify.</p>
       </article>
       <article class="market-read-panel">
         <div class="market-read-panel-heading"><div><p class="eyebrow">HISTORICAL MODEL OUTCOMES</p><h3>Backtest-based probability</h3></div><span class="evidence-score" id="read-outcome-count">0 resolved</span></div>

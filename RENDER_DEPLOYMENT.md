@@ -27,6 +27,8 @@ Neon Free can scale compute to zero while idle, so the first database operation 
 
 Neon keeps saved history separate from Render's filesystem. Render's free web-service plan may spin down after inactivity or restart; this can interrupt the live FYERS market socket and remote footprint capture. Neon protects persisted history, but it does not keep the Render service awake. Check Render's current plan limits before relying on uninterrupted market-hours capture.
 
+The Setup Evaluation panel explains structure, delta, aggressive bid/ask at tested profile levels, prior/current value areas, highs/lows, HVNs/LVNs, and any qualifying continuation or reversal confluences. Qualified setups are recorded in the `setup-outcomes` document (PostgreSQL on Render when `DATABASE_URL` is configured). The demo tracker marks an entry open only after a live FYERS price crosses the saved trigger and simulates stop/target outcomes; it does not submit orders.
+
 ## Forward numeric footprint from the desktop
 
 The dashboard's **Orderflow Chart** only displays data; changing its timeframe does not create a FYERS capture. On the browser where you are logged into FYERS, install `scripts/violentmonkey-fyers-capture.user.js`, set the Render capture token from the Violentmonkey menu, open FYERS Order Flow, and change timeframe to trigger a capture. Confirm the FYERS page shows the **Legend capture · N responses forwarded to dashboard** badge.

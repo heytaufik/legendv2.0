@@ -595,6 +595,8 @@ function renderMarketRead(data) {
   document.getElementById('read-session-story').textContent = current
     ? `${valueContext}; 5-minute price structure is ${analysis.trendDirection.toLowerCase()}, and ${deltaContext}. Opening context is ${analysis.openingDirection.toLowerCase()} and contributes only a small supporting weight—not a standalone direction call. ${data.marketDay ? analysis.marketDataFresh ? 'Market data is fresh.' : 'Market data is stale, so no new entry is evaluated.' : `Market is closed; showing the saved ${current.date} session for context only.`}`
     : 'Waiting for current-session candles and previous-session levels.';
+  document.getElementById('read-market-behavior').textContent = analysis.marketBehavior
+    || 'Waiting for completed real FYERS price-level bid/ask footprint.';
 
   const move = document.getElementById('read-session-move');
   move.textContent = Number.isFinite(analysis.sessionMove) ? formatSigned(analysis.sessionMove, ' pts') : '--';
@@ -673,6 +675,50 @@ function renderMarketRead(data) {
     document.getElementById('read-plan-reason').textContent = `${analysis.reason} ${plan.maximumHold}`;
     const factors = plan.evidence.map((factor) => `${factor.name} ${factor.points}/${factor.maxPoints}`);
     document.getElementById('read-plan-reason').textContent += ` Evidence breakdown: ${factors.join('; ')}.`;
+  }
+
+  const confluenceList = document.getElementById('read-confluences');
+  confluenceList.replaceChildren();
+  (analysis.confluences || []).forEach((factor) => {
+    const item = document.createElement('div');
+    item.className = `confluence-item${factor.present ? ' present' : ' absent'}`;
+    const heading = document.createElement('strong');
+    heading.textContent = factor.name;
+    const detail = document.createElement('span');
+    detail.textContent = factor.detail;
+    item.append(heading, detail);
+    confluenceList.append(item);
+  });
+
+  const demoTrades = document.getElementById('read-demo-trades');
+  demoTrades.replaceChildren();
+  const openTrades = data.demoTrades || [];
+  if (!openTrades.length) {
+    const empty = document.createElement('p');
+    empty.className = 'demo-trade-empty';
+    empty.textContent = 'No saved setup is waiting or open. Qualified setups are saved automatically; a demo trade opens only after the live price touches its entry trigger.';
+    demoTrades.append(empty);
+  } else {
+    openTrades.forEach((trade) => {
+      const card = document.createElement('article');
+      card.className = `demo-trade-card ${trade.status === 'ACTIVE' ? 'active' : 'waiting'}`;
+      const heading = document.createElement('div');
+      heading.className = 'demo-trade-card-heading';
+      const title = document.createElement('strong');
+      title.textContent = `${trade.direction === 'UP' ? 'LONG' : 'SHORT'} · ${trade.model}`;
+      const state = document.createElement('span');
+      state.textContent = trade.status === 'ACTIVE' ? 'OPEN · DEMO' : 'WAITING FOR ENTRY';
+      heading.append(title, state);
+      const levels = document.createElement('p');
+      levels.textContent = `Entry ${formatNumber(trade.entry)} · Stop ${formatNumber(trade.stop)} · Target ${formatNumber(trade.target)} · Live ${formatNumber(trade.currentPrice)}`;
+      card.append(heading, levels);
+      if (trade.status === 'ACTIVE' && Number.isFinite(trade.unrealizedR)) {
+        const result = document.createElement('small');
+        result.textContent = `Unrealized ${formatSigned(trade.unrealizedR, 'R')} · simulated from live price`;
+        card.append(result);
+      }
+      demoTrades.append(card);
+    });
   }
 
   const outcomes = data.outcomes || { models: [], totalSignals: 0, resolvedSample: 0, pendingSignals: 0 };
@@ -773,11 +819,13 @@ function renderMarketRead(data) {
   }
 }
 
-async function openMarketRead() {
-  setView('read');
+async function openMarketRead({ refresh = false } = {}) {
+  if (!refresh) setView('read');
   const status = document.getElementById('market-read-status');
-  status.textContent = 'Loading saved FYERS footprint and session history…';
-  status.dataset.state = 'loading';
+  if (!refresh) {
+    status.textContent = 'Loading saved FYERS footprint and session history…';
+    status.dataset.state = 'loading';
+  }
   try {
     const response = await fetch(`/api/orderflow-history/${encodeURIComponent(selectedSymbol)}`);
     if (!response.ok) throw new Error(`Market history request failed (${response.status})`);
@@ -874,3 +922,6 @@ function updateClock() {
 
 updateClock();
 setInterval(updateClock, 1000);
+setInterval(() => {
+  if (activeView === 'read') void openMarketRead({ refresh: true });
+}, 2000);
