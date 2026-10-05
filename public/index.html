@@ -11,19 +11,17 @@
   <link rel="stylesheet" href="/live.css">
   <link rel="stylesheet" href="/profile.css">
   <link rel="stylesheet" href="/lvn.css">
-  <link rel="stylesheet" href="/orderflow.css">
   <link rel="stylesheet" href="/conviction.css">
-  <link rel="stylesheet" href="/orderflow-large.css">
-  <link rel="stylesheet" href="/orderflow-summary.css">
   <link rel="stylesheet" href="/capture-details.css">
   <link rel="stylesheet" href="/market-read.css">
+  <link rel="stylesheet" href="/setup-evolution.css">
   <link rel="stylesheet" href="/brand.css">
 </head>
 <body>
   <main class="shell">
     <header class="topbar">
       <div class="brand"><img class="brand-mark brand-image" src="/web%20design.jpg" alt="Flowdesk logo" decoding="async"><div><strong>Flowdesk</strong><span>market intelligence</span></div></div>
-      <div class="status" id="feed-status-wrap" data-state="disconnected"><i></i><span id="feed-status">WAITING FOR FYERS</span><b>READ ONLY</b><button class="chart-toggle" id="chart-toggle" type="button">See Orderflow Chart</button><a class="connect-button" id="connect-button" href="/auth/login">Connect FYERS</a></div>
+      <div class="status" id="feed-status-wrap" data-state="disconnected"><i></i><span id="feed-status">WAITING FOR FYERS</span><b>READ ONLY</b><a class="connect-button" id="connect-button" href="/auth/login">Connect FYERS</a></div>
     </header>
     <section class="intro" data-overview>
       <div><p class="eyebrow">INTRADAY ORDER FLOW</p><h1>Index futures, without the noise.</h1><p class="subhead" id="feed-message">Waiting for a live FYERS tick feed.</p></div>
@@ -53,39 +51,6 @@
       <article class="value-panel"><div class="section-heading"><div><p class="eyebrow">SESSION VOLUME PROFILE</p><h2>Price distribution</h2></div><span class="live-dot" id="profile-status">WAITING</span></div><div class="levels"><div><span>VAH</span><strong id="vah">--</strong><small>upper value</small></div><div class="poc"><span>POC</span><strong id="poc">--</strong><small>most traded</small></div><div><span>VAL</span><strong id="val">--</strong><small>lower value</small></div></div><div class="profile-readouts"><div><span>SESSION LOW</span><strong id="profile-low">--</strong></div><div><span>LOW VOLUME NODES</span><strong id="lvn-summary">--</strong></div></div><div class="profile-legend"><span class="legend-value">VALUE AREA</span><span class="legend-poc">POC</span><span class="legend-low">SESSION LOW</span><span class="legend-lvn">LVN</span></div><div class="profile-chart" id="profile" aria-label="Session volume profile by price"></div><div class="lvn-detector"><section class="lvn-zone-group"><div class="lvn-zone-heading"><h3>TODAY'S LVN AREAS</h3><span id="today-lvn-count">0</span></div><div class="lvn-zone-list" id="today-lvn-zones"></div></section><section class="lvn-zone-group"><div class="lvn-zone-heading"><h3>UNTESTED PRIOR LVNS · 1 MONTH</h3><span id="historical-lvn-count">0</span></div><div class="lvn-zone-list" id="historical-lvn-zones"></div></section></div></article>
       <article class="delta-panel"><div class="section-heading"><div><p class="eyebrow">5-MINUTE FLOW</p><h2>Delta balance</h2></div><span class="unit" id="flow-source">tick-rule estimate</span></div><div class="bars" id="bars"></div><div class="axis" id="flow-axis"></div></article>
     </section>
-    <section class="orderflow-view" id="orderflow-view" hidden>
-      <div class="orderflow-heading"><div><p class="eyebrow">ACTIVE-EXPIRY FUTURES ORDERFLOW</p><h2 id="chart-instrument-title">NIFTY FUTURES</h2><p class="chart-data-status" id="chart-data-status" role="status">Connect FYERS to load the active futures feed.</p></div><span class="chart-disclaimer" id="chart-disclaimer">Tick-based orderflow estimate. Numeric bid/ask footprint is shown when captured from FYERS Order Flow.</span></div>
-      <div class="orderflow-controls">
-        <nav class="chart-symbols" aria-label="Orderflow instrument"><button class="active" type="button" data-chart-symbol="NIFTY">NIFTY</button><button type="button" data-chart-symbol="SENSEX">SENSEX</button></nav>
-        <nav class="timeframe-tabs" aria-label="Chart timeframe"><button type="button" data-timeframe="1">1m</button><button type="button" data-timeframe="3">3m</button><button class="active" type="button" data-timeframe="5">5m</button><button type="button" data-timeframe="15">15m</button></nav>
-        <span class="chart-status" id="chart-status">WAITING FOR TICKS</span>
-      </div>
-      <div class="chart-summary"><div><span>OPEN</span><strong id="chart-open">--</strong></div><div><span>HIGH</span><strong id="chart-high">--</strong></div><div><span>LOW</span><strong id="chart-low">--</strong></div><div><span>CLOSE</span><strong id="chart-close">--</strong></div><div><span>BAR VOLUME</span><strong id="chart-volume">--</strong></div><div><span>BAR DELTA</span><strong id="chart-delta">--</strong></div><div><span>SESSION CVD</span><strong id="chart-cvd">--</strong></div><div><span>OPENING LOCATION</span><strong id="chart-opening-status">WAITING</strong></div></div>
-      <div class="orderflow-layout">
-        <div class="chart-stack">
-          <article class="chart-panel"><div class="chart-panel-heading"><h3>Price candles</h3><span>OHLC from traded-price updates</span></div><canvas id="orderflow-candles" aria-label="Tick-derived price candles"></canvas></article>
-          <article class="chart-panel"><div class="chart-panel-heading"><h3>Delta</h3><span id="delta-chart-source">Tick-rule estimate</span></div><canvas id="delta-chart" aria-label="Estimated buy and sell delta by candle"></canvas></article>
-          <article class="chart-panel"><div class="chart-panel-heading"><h3>Cumulative volume delta</h3><span id="cvd-chart-source">Since feed connection</span></div><canvas id="cvd-chart" aria-label="Cumulative estimated volume delta"></canvas></article>
-          <article class="chart-panel capture-details-panel">
-            <div class="chart-panel-heading"><div><h3>FYERS capture details</h3><span id="capture-data-source">Waiting for captured Order Flow data</span></div><span class="capture-status" id="capture-status">NO CAPTURE</span></div>
-            <div class="capture-summary">
-              <div><span>CAPTURED CANDLE</span><strong id="capture-candle-time">--</strong></div>
-              <div><span>OHLC</span><strong id="capture-ohlc">--</strong></div>
-              <div><span>ASK VOLUME</span><strong id="capture-ask-volume">--</strong></div>
-              <div><span>BID VOLUME</span><strong id="capture-bid-volume">--</strong></div>
-              <div><span>BAR DELTA</span><strong id="capture-delta">--</strong></div>
-              <div><span>SESSION CVD</span><strong id="capture-cvd">--</strong></div>
-              <div><span>SESSION PROFILE</span><strong id="capture-profile-count">--</strong></div>
-            </div>
-            <div class="footprint-table-wrap">
-              <div class="footprint-row footprint-header" aria-hidden="true"><span>PRICE</span><span>BID</span><span>ASK</span><span>DELTA</span></div>
-              <div id="capture-levels" class="footprint-levels" role="table" aria-label="Latest captured FYERS bid and ask volumes by price"></div>
-            </div>
-          </article>
-        </div>
-        <article class="chart-profile-panel"><div class="chart-panel-heading"><div><h3>Volume distribution</h3><span>Tick price / traded volume</span></div><span class="live-dot" id="chart-profile-status">COLLECTING</span></div><div class="levels chart-levels"><div><span>VAH</span><strong id="chart-vah">--</strong></div><div class="poc"><span>POC</span><strong id="chart-poc">--</strong></div><div><span>VAL</span><strong id="chart-val">--</strong></div></div><div class="profile-readouts"><div><span>SESSION LOW</span><strong id="chart-profile-low">--</strong></div><div><span>LOW VOLUME NODES</span><strong id="chart-lvns">--</strong></div></div><div class="profile-legend"><span class="legend-value">VALUE AREA</span><span class="legend-poc">POC</span><span class="legend-low">SESSION LOW</span><span class="legend-lvn">LVN</span></div><div class="profile-chart" id="chart-profile" aria-label="Orderflow chart volume profile"></div></article>
-      </div>
-    </section>
     <section class="market-read-view" id="market-read-view" hidden aria-live="polite">
       <div class="market-read-heading">
         <div><p class="eyebrow">COMBINED MARKET CONTEXT</p><h2 id="market-read-title">NIFTY · Detailed market read</h2></div>
@@ -93,6 +58,7 @@
       </div>
       <p class="market-read-status" id="market-read-status">Loading saved footprint history…</p>
       <p class="market-read-story" id="read-session-story">Waiting for saved market context.</p>
+      <p class="market-read-behavior" id="read-market-behavior">Waiting for actual FYERS footprint evidence.</p>
       <div class="market-read-grid">
         <article class="market-read-card"><span id="read-session-move-label">SESSION MOVE</span><strong id="read-session-move">--</strong><small id="read-session-range">Waiting for session data</small></article>
         <article class="market-read-card"><span>5-MIN STRUCTURE</span><strong id="read-structure">--</strong><small id="read-structure-detail">Completed candles only</small></article>
@@ -107,24 +73,15 @@
         <div class="market-read-panel-heading"><div><p class="eyebrow">SETUP EVALUATION</p><h3 id="read-plan-title">No entry plan yet</h3></div><span class="evidence-score" id="read-evidence-score">--</span></div>
         <p class="market-read-reason" id="read-plan-reason">Waiting for complete current and previous-session data.</p>
         <div class="market-read-plan" id="read-plan-details"></div>
-        <p class="market-read-disclaimer">Evidence score is rule confluence, not a win probability. No entry is suggested unless the combined evidence, price trigger and minimum 1:1 risk/reward all qualify.</p>
-      </article>
-      <article class="market-read-panel">
-        <div class="market-read-panel-heading"><div><p class="eyebrow">HISTORICAL MODEL OUTCOMES</p><h3>Backtest-based probability</h3></div><span class="evidence-score" id="read-outcome-count">0 resolved</span></div>
-        <p class="market-read-reason" id="read-outcome-summary">Collecting rule-based setup outcomes. This is simulated model performance, not executed-trade performance.</p>
-        <div class="market-read-levels" id="read-outcome-models"></div>
-        <p class="market-read-disclaimer">A model-specific success rate and 95% Wilson interval appear only after 30 resolved, triggered samples for that exact instrument, direction and setup model. No-trigger, ambiguous-bar and missing-data outcomes are excluded.</p>
-      </article>
-      <article class="market-read-panel">
-        <div class="market-read-panel-heading"><div><p class="eyebrow">LATEST COMPLETED FOOTPRINT</p><h3 id="read-footprint-time">No completed 5-minute footprint</h3></div><span class="market-read-note">Ask = aggressive buy volume · Bid = aggressive sell volume</span></div>
-        <div class="market-read-table-wrap"><table class="market-read-table"><thead><tr><th>PRICE</th><th>ASK</th><th>BID</th><th>DELTA</th></tr></thead><tbody id="read-footprint-levels"><tr><td colspan="4">Waiting for captured footprint levels</td></tr></tbody></table></div>
-      </article>
-      <article class="market-read-panel">
-        <div class="market-read-panel-heading"><div><p class="eyebrow">SESSION CANDLE HISTORY</p><h3>Completed 5-minute candles</h3></div><span class="market-read-note" id="read-candle-count">0 candles</span></div>
-        <div class="market-read-table-wrap"><table class="market-read-table"><thead><tr><th>TIME</th><th>OHLC</th><th>VOLUME</th><th>DELTA</th><th>CVD</th></tr></thead><tbody id="read-candle-history"><tr><td colspan="5">Waiting for captured candles</td></tr></tbody></table></div>
+        <div class="market-read-confluences" id="read-confluences" aria-label="Setup evidence and confluences"></div>
+        <section class="demo-trades">
+          <div class="demo-trades-heading"><h4>DEMO TRADE TRACKER</h4><span>SIMULATED · NO ORDERS</span></div>
+          <div id="read-demo-trades" class="demo-trade-list" aria-live="polite"></div>
+        </section>
+        <p class="market-read-disclaimer">Evidence score is rule confluence, not a win probability. Demo trades activate only when live FYERS price reaches the entry trigger; they are not broker orders. No entry is suggested unless the combined evidence and minimum 1:1 risk/reward qualify.</p>
       </article>
     </section>
-    <footer data-overview><span>Delta is inferred from tick-price direction; profile and CVD start when this feed connects.</span><span>NO ORDER PLACEMENT</span></footer>
+    <footer data-overview><span>Setup analysis uses actual FYERS Bid/Ask footprint captures.</span><span>NO ORDER PLACEMENT</span></footer>
   </main>
   <script src="/app.js"></script>
 </body>

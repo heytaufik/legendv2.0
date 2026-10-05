@@ -498,11 +498,9 @@ function renderOpeningConviction(instrument) {
     ? `${conviction.previousDate} | VAH ${formatNumber(conviction.previousVah)} | VAL ${formatNumber(conviction.previousVal)}`
     : 'No saved prior session value area';
 
-  for (const id of ['opening-status', 'chart-opening-status']) {
-    const element = document.getElementById(id);
-    element.textContent = status;
-    element.dataset.bias = conviction.direction || 'waiting';
-  }
+  const element = document.getElementById('opening-status');
+  element.textContent = status;
+  element.dataset.bias = conviction.direction || 'waiting';
   document.getElementById('opening-comparison').textContent = comparison;
   document.getElementById('opening-reference').textContent = reference;
 }
@@ -549,11 +547,9 @@ function updateInstrument() {
     : 'tick-rule estimate';
 
   updateProfile(instrument);
-  updateProfile(instrument, 'chart-');
   renderOverviewCapture(instrument);
   renderOpeningConviction(instrument);
   renderFlow(instrument.flow);
-  renderOrderflow(instrument);
 }
 
 function setView(view) {
@@ -561,9 +557,7 @@ function setView(view) {
   document.querySelectorAll('[data-overview]').forEach((section) => {
     section.hidden = view !== 'overview';
   });
-  document.getElementById('orderflow-view').hidden = view !== 'chart';
   document.getElementById('market-read-view').hidden = view !== 'read';
-  document.getElementById('chart-toggle').textContent = view === 'chart' ? 'Back to Overview' : 'See Orderflow Chart';
 }
 
 function renderMarketRead(data) {
@@ -595,6 +589,8 @@ function renderMarketRead(data) {
   document.getElementById('read-session-story').textContent = current
     ? `${valueContext}; 5-minute price structure is ${analysis.trendDirection.toLowerCase()}, and ${deltaContext}. Opening context is ${analysis.openingDirection.toLowerCase()} and contributes only a small supporting weight—not a standalone direction call. ${data.marketDay ? analysis.marketDataFresh ? 'Market data is fresh.' : 'Market data is stale, so no new entry is evaluated.' : `Market is closed; showing the saved ${current.date} session for context only.`}`
     : 'Waiting for current-session candles and previous-session levels.';
+  document.getElementById('read-market-behavior').textContent = analysis.marketBehavior
+    || 'Waiting for completed real FYERS price-level bid/ask footprint.';
 
   const move = document.getElementById('read-session-move');
   move.textContent = Number.isFinite(analysis.sessionMove) ? formatSigned(analysis.sessionMove, ' pts') : '--';
@@ -675,109 +671,59 @@ function renderMarketRead(data) {
     document.getElementById('read-plan-reason').textContent += ` Evidence breakdown: ${factors.join('; ')}.`;
   }
 
-  const outcomes = data.outcomes || { models: [], totalSignals: 0, resolvedSample: 0, pendingSignals: 0 };
-  document.getElementById('read-outcome-count').textContent = `${outcomes.resolvedSample} resolved`;
-  document.getElementById('read-outcome-summary').textContent = `${outcomes.totalSignals} model signals recorded · ${outcomes.pendingSignals} awaiting trigger/outcome · ${outcomes.excludedNoTrigger} expired without trigger · ${outcomes.excludedAmbiguous} ambiguous · ${outcomes.excludedDataGaps} data gaps. Simulated rule-based results, not executed trades.`;
-  const modelOutcomes = document.getElementById('read-outcome-models');
-  modelOutcomes.replaceChildren();
-  const visibleModels = outcomes.models.filter((model) => model.totalSignals > 0);
-  if (!visibleModels.length) {
+  const confluenceList = document.getElementById('read-confluences');
+  confluenceList.replaceChildren();
+  (analysis.confluences || []).forEach((factor) => {
     const item = document.createElement('div');
-    const heading = document.createElement('span');
-    heading.textContent = 'CALIBRATION';
-    const content = document.createElement('strong');
-    content.textContent = `Collecting first ${outcomes.minimumSample || 30} resolved outcomes`;
-    item.append(heading, content);
-    modelOutcomes.append(item);
-  } else {
-    visibleModels.forEach((model) => {
-      const item = document.createElement('div');
-      const heading = document.createElement('span');
-      heading.textContent = `${model.direction === 'UP' ? 'LONG' : 'SHORT'} · ${model.model} · SCORE ${model.evidenceBand}`;
-      const content = document.createElement('strong');
-      content.textContent = model.probabilityAvailable
-        ? `${Math.round(model.historicalPositiveRate * 100)}% · ${model.resolvedSample} samples`
-        : `Uncalibrated · ${model.resolvedSample}/${outcomes.minimumSample} resolved`;
-      const detail = document.createElement('small');
-      detail.textContent = model.probabilityAvailable
-        ? `95% interval ${Math.round(model.confidenceInterval95.lower * 100)}–${Math.round(model.confidenceInterval95.upper * 100)}% · avg ${numberFormat.format(model.averageR)}R`
-        : `${model.wins} positive · ${model.losses} negative · ${model.waiting} waiting · ${model.active} active`;
-      item.append(heading, content, detail);
-      modelOutcomes.append(item);
-    });
-  }
-  if (plan) {
-    const scoreBand = `${Math.floor(plan.evidenceScore / 10) * 10}-${Math.floor(plan.evidenceScore / 10) * 10 + 9}`;
-    const selectedModel = visibleModels.find((model) => model.direction === plan.direction
-      && model.model === plan.model
-      && model.evidenceBand === scoreBand);
-    const probability = selectedModel?.probabilityAvailable
-      ? ` Historical ${Math.round(selectedModel.historicalPositiveRate * 100)}% positive outcome across ${selectedModel.resolvedSample} same-model samples (95% interval ${Math.round(selectedModel.confidenceInterval95.lower * 100)}–${Math.round(selectedModel.confidenceInterval95.upper * 100)}%).`
-      : ` Historical probability for this exact model is not calibrated yet (${selectedModel?.resolvedSample || 0}/${outcomes.minimumSample || 30} resolved samples).`;
-    document.getElementById('read-plan-reason').textContent += probability;
-  }
+    item.className = `confluence-item${factor.present ? ' present' : ' absent'}`;
+    const heading = document.createElement('strong');
+    heading.textContent = factor.name;
+    const detail = document.createElement('span');
+    detail.textContent = factor.detail;
+    item.append(heading, detail);
+    confluenceList.append(item);
+  });
 
-  const latestCandle = current?.candles?.['5']?.find((candle) => candle.time === analysis.latestCandleTime);
-  document.getElementById('read-footprint-time').textContent = latestCandle
-    ? `${formatTime(latestCandle.time)} IST · ${formatNumber(latestCandle.volume)} volume · delta ${formatSigned(latestCandle.delta)}`
-    : 'No completed 5-minute footprint';
-  const footprintRows = document.getElementById('read-footprint-levels');
-  footprintRows.replaceChildren();
-  if (!latestCandle?.levels?.length) {
-    const row = document.createElement('tr');
-    const cell = document.createElement('td');
-    cell.colSpan = 4;
-    cell.className = 'market-read-empty';
-    cell.textContent = 'No price-level bid/ask data captured for the latest completed candle.';
-    row.append(cell);
-    footprintRows.append(row);
+  const demoTrades = document.getElementById('read-demo-trades');
+  demoTrades.replaceChildren();
+  const openTrades = data.demoTrades || [];
+  if (!openTrades.length) {
+    const empty = document.createElement('p');
+    empty.className = 'demo-trade-empty';
+    empty.textContent = 'No saved setup is waiting or open. Qualified setups are saved automatically; a demo trade opens only after the live price touches its entry trigger.';
+    demoTrades.append(empty);
   } else {
-    [...latestCandle.levels].sort((left, right) => right.price - left.price).forEach((level) => {
-      const row = document.createElement('tr');
-      const values = [formatNumber(level.price), formatNumber(level.positiveVolume), formatNumber(level.negativeVolume), formatSigned(level.positiveVolume - level.negativeVolume)];
-      values.forEach((value, index) => {
-        const cell = document.createElement('td');
-        cell.textContent = value;
-        if (index === 3) cell.className = level.positiveVolume - level.negativeVolume > 0 ? 'positive' : 'negative';
-        row.append(cell);
-      });
-      footprintRows.append(row);
+    openTrades.forEach((trade) => {
+      const card = document.createElement('article');
+      card.className = `demo-trade-card ${trade.status === 'ACTIVE' ? 'active' : 'waiting'}`;
+      const heading = document.createElement('div');
+      heading.className = 'demo-trade-card-heading';
+      const title = document.createElement('strong');
+      title.textContent = `${trade.direction === 'UP' ? 'LONG' : 'SHORT'} · ${trade.model}`;
+      const state = document.createElement('span');
+      state.textContent = trade.status === 'ACTIVE' ? 'OPEN · DEMO' : 'WAITING FOR ENTRY';
+      heading.append(title, state);
+      const levels = document.createElement('p');
+      levels.textContent = `Entry ${formatNumber(trade.entry)} · Stop ${formatNumber(trade.stop)} · Target ${formatNumber(trade.target)} · Live ${formatNumber(trade.currentPrice)}`;
+      card.append(heading, levels);
+      if (trade.status === 'ACTIVE' && Number.isFinite(trade.unrealizedR)) {
+        const result = document.createElement('small');
+        result.textContent = `Unrealized ${formatSigned(trade.unrealizedR, 'R')} · simulated from live price`;
+        card.append(result);
+      }
+      demoTrades.append(card);
     });
   }
 
-  const candleHistory = document.getElementById('read-candle-history');
-  candleHistory.replaceChildren();
-  const capturedCandles = current?.candles?.['5'] || [];
-  document.getElementById('read-candle-count').textContent = `${capturedCandles.length} captured · ${analysis.completedCandleCount} completed`;
-  const completedCandles = capturedCandles.filter((candle) => candle.time + 5 * 60000 <= Date.now()).slice(-20).reverse();
-  if (!completedCandles.length) {
-    const row = document.createElement('tr');
-    const cell = document.createElement('td');
-    cell.colSpan = 5;
-    cell.className = 'market-read-empty';
-    cell.textContent = 'Waiting for completed captured candles.';
-    row.append(cell);
-    candleHistory.append(row);
-  } else {
-    completedCandles.forEach((candle) => {
-      const row = document.createElement('tr');
-      [formatTime(candle.time), `${formatNumber(candle.open)} / ${formatNumber(candle.high)} / ${formatNumber(candle.low)} / ${formatNumber(candle.close)}`, formatNumber(candle.volume), formatSigned(candle.delta), formatSigned(candle.cvd)]
-        .forEach((value, index) => {
-          const cell = document.createElement('td');
-          cell.textContent = value;
-          if (index === 3 || index === 4) cell.className = (index === 3 ? candle.delta : candle.cvd) >= 0 ? 'positive' : 'negative';
-          row.append(cell);
-        });
-      candleHistory.append(row);
-    });
-  }
 }
 
-async function openMarketRead() {
-  setView('read');
+async function openMarketRead({ refresh = false } = {}) {
+  if (!refresh) setView('read');
   const status = document.getElementById('market-read-status');
-  status.textContent = 'Loading saved FYERS footprint and session history…';
-  status.dataset.state = 'loading';
+  if (!refresh) {
+    status.textContent = 'Loading saved FYERS footprint and session history…';
+    status.dataset.state = 'loading';
+  }
   try {
     const response = await fetch(`/api/orderflow-history/${encodeURIComponent(selectedSymbol)}`);
     if (!response.ok) throw new Error(`Market history request failed (${response.status})`);
@@ -805,8 +751,8 @@ function updateConnection(state) {
 
 function selectSymbol(symbol) {
   selectedSymbol = symbol;
-  document.querySelectorAll('[data-symbol], [data-chart-symbol]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.symbol === symbol || button.dataset.chartSymbol === symbol);
+  document.querySelectorAll('[data-symbol]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.symbol === symbol);
   });
   updateInstrument();
   if (activeView === 'read') openMarketRead();
@@ -818,31 +764,9 @@ instrumentButtons.forEach((button) => {
   });
 });
 
-document.querySelectorAll('[data-chart-symbol]').forEach((button) => {
-  button.addEventListener('click', () => selectSymbol(button.dataset.chartSymbol));
-});
-
-document.querySelectorAll('[data-timeframe]').forEach((button) => {
-  button.addEventListener('click', () => {
-    selectedTimeframe = Number(button.dataset.timeframe);
-    document.querySelectorAll('[data-timeframe]').forEach((item) => item.classList.toggle('active', item === button));
-    updateInstrument();
-  });
-});
-
-const orderflowView = document.getElementById('orderflow-view');
-document.getElementById('chart-toggle').addEventListener('click', (event) => {
-  const opening = orderflowView.hidden;
-  setView(opening ? 'chart' : 'overview');
-  if (opening) updateInstrument();
-});
 document.getElementById('market-read-toggle').addEventListener('click', openMarketRead);
 document.getElementById('market-read-refresh').addEventListener('click', openMarketRead);
 document.getElementById('market-read-back').addEventListener('click', () => setView('overview'));
-
-window.addEventListener('resize', () => {
-  if (!orderflowView.hidden) updateInstrument();
-});
 
 const stream = new EventSource('/api/market-stream');
 stream.addEventListener('message', (event) => {
@@ -874,3 +798,6 @@ function updateClock() {
 
 updateClock();
 setInterval(updateClock, 1000);
+setInterval(() => {
+  if (activeView === 'read') void openMarketRead({ refresh: true });
+}, 2000);
