@@ -16,7 +16,7 @@ Use the included [`render.yaml`](./render.yaml) Blueprint and follow [`RENDER_DE
 
 ## Orderflow
 
-The dashboard derives candles, volume profile, and estimated delta/CVD from FYERS market updates. Buy/sell direction is inferred from price changes; it is not exchange aggressor-side data. Numeric chart footprint data requires the separate desktop capture process described in the deployment guide. Opening the dashboard's Orderflow chart does not capture FYERS data; run `npm run capture:fyers` on the desktop and open the FYERS Order Flow chart in the capture window.
+The dashboard derives candles, volume profile, and estimated delta/CVD from FYERS market updates. Buy/sell direction is inferred from price changes; it is not exchange aggressor-side data. Numeric chart footprint data is forwarded by the Violentmonkey userscript from the logged-in FYERS Order Flow browser page. Opening the dashboard's Orderflow chart does not capture FYERS data.
 
 ## Tests
 

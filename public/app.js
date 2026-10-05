@@ -82,7 +82,7 @@ function renderOverviewCapture(instrument) {
     ? 'NO ORDERFLOW CAPTURE'
     : isLive ? 'REAL FYERS CAPTURE · LIVE' : 'FYERS CAPTURE · SAVED';
   if (!hasCapture) {
-    detail.textContent = `Dashboard ka chart sirf received capture dikhata hai. Desktop par "npm run capture:fyers" chalao; uske FYERS Chrome window me login karke FYERS Order Flow chart kholo aur timeframe change karo. LIVE TICKS alag feed hai.`;
+    detail.textContent = `FYERS Order Flow page par Violentmonkey ka "Legend capture" badge dekho. Wahan "responses forwarded" aana chahiye; badge na ho to userscript enable karo, token set karke page reload karo. LIVE TICKS alag feed hai.`;
     return;
   }
 
