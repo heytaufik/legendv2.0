@@ -498,11 +498,9 @@ function renderOpeningConviction(instrument) {
     ? `${conviction.previousDate} | VAH ${formatNumber(conviction.previousVah)} | VAL ${formatNumber(conviction.previousVal)}`
     : 'No saved prior session value area';
 
-  for (const id of ['opening-status', 'chart-opening-status']) {
-    const element = document.getElementById(id);
-    element.textContent = status;
-    element.dataset.bias = conviction.direction || 'waiting';
-  }
+  const element = document.getElementById('opening-status');
+  element.textContent = status;
+  element.dataset.bias = conviction.direction || 'waiting';
   document.getElementById('opening-comparison').textContent = comparison;
   document.getElementById('opening-reference').textContent = reference;
 }
@@ -549,11 +547,9 @@ function updateInstrument() {
     : 'tick-rule estimate';
 
   updateProfile(instrument);
-  updateProfile(instrument, 'chart-');
   renderOverviewCapture(instrument);
   renderOpeningConviction(instrument);
   renderFlow(instrument.flow);
-  renderOrderflow(instrument);
 }
 
 function setView(view) {
@@ -561,9 +557,7 @@ function setView(view) {
   document.querySelectorAll('[data-overview]').forEach((section) => {
     section.hidden = view !== 'overview';
   });
-  document.getElementById('orderflow-view').hidden = view !== 'chart';
   document.getElementById('market-read-view').hidden = view !== 'read';
-  document.getElementById('chart-toggle').textContent = view === 'chart' ? 'Back to Overview' : 'See Orderflow Chart';
 }
 
 function renderMarketRead(data) {
@@ -757,8 +751,8 @@ function updateConnection(state) {
 
 function selectSymbol(symbol) {
   selectedSymbol = symbol;
-  document.querySelectorAll('[data-symbol], [data-chart-symbol]').forEach((button) => {
-    button.classList.toggle('active', button.dataset.symbol === symbol || button.dataset.chartSymbol === symbol);
+  document.querySelectorAll('[data-symbol]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.symbol === symbol);
   });
   updateInstrument();
   if (activeView === 'read') openMarketRead();
@@ -770,31 +764,9 @@ instrumentButtons.forEach((button) => {
   });
 });
 
-document.querySelectorAll('[data-chart-symbol]').forEach((button) => {
-  button.addEventListener('click', () => selectSymbol(button.dataset.chartSymbol));
-});
-
-document.querySelectorAll('[data-timeframe]').forEach((button) => {
-  button.addEventListener('click', () => {
-    selectedTimeframe = Number(button.dataset.timeframe);
-    document.querySelectorAll('[data-timeframe]').forEach((item) => item.classList.toggle('active', item === button));
-    updateInstrument();
-  });
-});
-
-const orderflowView = document.getElementById('orderflow-view');
-document.getElementById('chart-toggle').addEventListener('click', (event) => {
-  const opening = orderflowView.hidden;
-  setView(opening ? 'chart' : 'overview');
-  if (opening) updateInstrument();
-});
 document.getElementById('market-read-toggle').addEventListener('click', openMarketRead);
 document.getElementById('market-read-refresh').addEventListener('click', openMarketRead);
 document.getElementById('market-read-back').addEventListener('click', () => setView('overview'));
-
-window.addEventListener('resize', () => {
-  if (!orderflowView.hidden) updateInstrument();
-});
 
 const stream = new EventSource('/api/market-stream');
 stream.addEventListener('message', (event) => {
