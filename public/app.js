@@ -82,7 +82,7 @@ function renderOverviewCapture(instrument) {
     ? 'NO ORDERFLOW CAPTURE'
     : isLive ? 'REAL FYERS CAPTURE · LIVE' : 'FYERS CAPTURE · SAVED';
   if (!hasCapture) {
-    detail.textContent = `No FYERS Order Flow footprint received for ${capture?.symbol || instrument.symbol || selectedSymbol}. LIVE TICKS alone do not mean an orderflow capture arrived.`;
+    detail.textContent = `Dashboard ka chart sirf received capture dikhata hai. Desktop par "npm run capture:fyers" chalao; uske FYERS Chrome window me login karke FYERS Order Flow chart kholo aur timeframe change karo. LIVE TICKS alag feed hai.`;
     return;
   }
 
@@ -796,7 +796,9 @@ function updateConnection(state) {
   status.dataset.state = state.status;
   label.textContent = state.status === 'connected'
     ? 'LIVE TICKS'
-    : state.status === 'connecting' ? 'CONNECTING' : 'DISCONNECTED';
+    : state.status === 'connecting'
+      ? state.message.toLowerCase().includes('reconnect') ? 'RECONNECTING' : 'CONNECTING'
+      : 'DISCONNECTED';
   message.textContent = state.message;
   connectButton.hidden = state.status === 'connected' || state.status === 'connecting';
 }

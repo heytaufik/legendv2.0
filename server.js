@@ -59,6 +59,7 @@ const instrumentState = Object.fromEntries(Object.keys(configuredInstruments).ma
 const streamClients = new Set();
 let accessToken = '';
 let marketSocket = null;
+let lastSocketConnectAttempt = 0;
 let connectionStatus = 'disconnected';
 let connectionMessage = 'Loading active futures contracts from FYERS...';
 let sessionArchive = {};
@@ -649,6 +650,7 @@ function startMarketSocket() {
   try {
     marketSocket = fyersDataSocket.getInstance(`${process.env.FYERS_APP_ID}:${accessToken}`, undefined, false);
     const socket = marketSocket;
+    lastSocketConnectAttempt = Date.now();
     let subscriptionStarted = false;
     let connectionAttempts = 0;
     const subscribeWhenReady = () => {
@@ -659,7 +661,7 @@ function startMarketSocket() {
           socket.mode(socket.FullMode, 1);
           subscriptionStarted = true;
           connectionStatus = 'connected';
-          connectionMessage = 'Live FYERS feed connected. Delta uses tick-rule estimation.';
+          connectionMessage = 'Live FYERS market feed connected. Footprint capture is received separately from the desktop FYERS Order Flow chart.';
         } catch (error) {
           console.error('Could not subscribe to the FYERS market feed:', safeFyersError(error));
           connectionStatus = 'disconnected';
@@ -670,8 +672,8 @@ function startMarketSocket() {
       }
       connectionAttempts += 1;
       if (connectionAttempts >= 50) {
-        connectionStatus = 'disconnected';
-        connectionMessage = 'FYERS market socket did not become ready. Try reconnecting.';
+        connectionStatus = 'connecting';
+        connectionMessage = 'FYERS market socket did not become ready; the server will retry automatically.';
         broadcast();
         return;
       }
@@ -680,22 +682,23 @@ function startMarketSocket() {
     };
 
     marketSocket.on('connect', () => {
+      lastSocketConnectAttempt = Date.now();
       subscribeWhenReady();
     });
     marketSocket.on('message', handleMarketMessage);
     marketSocket.on('error', (error) => {
       console.error('FYERS market feed error:', safeFyersError(error));
-      connectionStatus = 'disconnected';
-      connectionMessage = 'FYERS market feed error. Check Render logs before reconnecting.';
+      connectionStatus = 'connecting';
+      connectionMessage = 'FYERS market feed interrupted; reconnecting automatically. Reauthorize only after the server restarts or the FYERS token expires.';
       broadcast();
     });
     marketSocket.on('close', () => {
       subscriptionStarted = false;
-      connectionStatus = 'disconnected';
-      connectionMessage = 'FYERS market feed closed.';
+      connectionStatus = 'connecting';
+      connectionMessage = 'FYERS market feed closed; reconnecting automatically. Reauthorize only after the server restarts or the FYERS token expires.';
       broadcast();
     });
-    marketSocket.autoreconnect(50);
+    marketSocket.autoreconnect(5);
     marketSocket.connect();
   } catch (error) {
     console.error('Could not start the FYERS market feed:', safeFyersError(error));
@@ -704,6 +707,22 @@ function startMarketSocket() {
     broadcast();
   }
 }
+
+const marketSocketSupervisor = setInterval(() => {
+  if (!accessToken || !marketSocket || marketSocket.isConnected?.()) return;
+  if (Date.now() - lastSocketConnectAttempt < 45000) return;
+
+  lastSocketConnectAttempt = Date.now();
+  connectionStatus = 'connecting';
+  connectionMessage = 'FYERS feed is still offline; retrying automatically. Your dashboard session remains connected while this server stays awake.';
+  broadcast();
+  try {
+    marketSocket.connect();
+  } catch (error) {
+    console.error('Could not retry the FYERS market feed:', safeFyersError(error));
+  }
+}, 10000);
+marketSocketSupervisor.unref();
 
 app.post('/webhook', (request, response) => {
   console.log('FYERS webhook received:', request.body?.type || 'order update');

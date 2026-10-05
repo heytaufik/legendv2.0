@@ -23,13 +23,13 @@ Neon Free can scale compute to zero while idle, so the first database operation 
 4. Register that exact HTTPS redirect URL in the FYERS developer settings, then deploy the Blueprint.
 5. Open `https://YOUR-SERVICE.onrender.com/api/health` and confirm it reports `ok: true` and `persistence.mode: "postgres"`.
 6. On the desktop running the FYERS capture, set `LEGEND_CAPTURE_URL` to `https://YOUR-SERVICE.onrender.com/api/fyers-orderflow` and set `LEGEND_CAPTURE_TOKEN` to the same secret configured in Render.
-7. Open the public dashboard on the phone and use **Connect FYERS** to authorize the Render callback.
+7. Open the public dashboard on the phone and use **Connect FYERS** to authorize the Render callback. This authorization remains in the running server process and automatically reconnects the market socket after temporary drops. If the Render instance sleeps or restarts, authorize again after it wakes; the in-memory FYERS token cannot survive a server restart.
 
 Neon keeps saved history separate from Render's filesystem. Render's free web-service plan may spin down after inactivity or restart; this can interrupt the live FYERS market socket and remote footprint capture. Neon protects persisted history, but it does not keep the Render service awake. Check Render's current plan limits before relying on uninterrupted market-hours capture.
 
 ## Forward numeric footprint from the desktop
 
-On the desktop that can access the logged-in FYERS Order Flow chart, set these local `.env` values:
+The dashboard's **Orderflow Chart** only displays data; changing its timeframe does not create a FYERS capture. On the desktop that can access the logged-in FYERS Order Flow chart, set these local `.env` values:
 
 ```text
 LEGEND_CAPTURE_URL=https://YOUR-SERVICE.onrender.com/api/fyers-orderflow
