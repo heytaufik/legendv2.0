@@ -12,7 +12,7 @@ import { mergeFyersOrderflow } from './lib/fyers-orderflow.js';
 import { mergeOrderflowHistory, ORDERFLOW_RETENTION_SESSIONS, readOrderflowHistory, writeOrderflowHistory } from './lib/orderflow-history.js';
 import { analyzeMarketHistory } from './lib/market-analysis.js';
 import { selectFuturesContract } from './lib/futures-contract.js';
-import { listOpenDemoTrades, readTradeOutcomes, recordTradeOutcomes, summarizeTradeOutcomes, writeTradeOutcomes } from './lib/trade-outcomes.js';
+import { listOpenDemoTrades, readTradeOutcomes, recordTradeOutcomes, writeTradeOutcomes } from './lib/trade-outcomes.js';
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -775,7 +775,6 @@ app.get('/api/orderflow-history/:instrument', (request, response) => {
       tickSize: instrumentTickSizes[instrument] || 0.05,
       marketDay: isWeekday(currentDate)
     }),
-    outcomes: summarizeTradeOutcomes(tradeOutcomes, instrument),
     demoTrades: listOpenDemoTrades(tradeOutcomes, instrument, currentDate, instrumentState[instrument].price)
   });
 });

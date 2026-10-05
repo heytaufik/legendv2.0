@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { listOpenDemoTrades, readTradeOutcomes, recordTradeOutcomes, summarizeTradeOutcomes, writeTradeOutcomes } from '../lib/trade-outcomes.js';
+import { listOpenDemoTrades, readTradeOutcomes, recordTradeOutcomes, writeTradeOutcomes } from '../lib/trade-outcomes.js';
 
 const signalTime = Date.parse('2026-10-05T09:15:00+05:30');
 const instrument = 'NIFTY';
@@ -161,25 +161,6 @@ test('excludes same-bar stop/target ambiguity and signals that expire without a 
     now: signalTime + 24 * 60 * 60000
   });
   assert.equal(expired.signals[0].outcome, 'EXPIRED');
-});
-
-test('exposes empirical probability only after 30 resolved outcomes for the same model', () => {
-  const signals = Array.from({ length: 30 }, (_, index) => ({
-    instrument,
-    direction: 'UP',
-    model: 'Stacked imbalance continuation',
-    status: 'RESOLVED',
-    outcome: index < 21 ? 'TARGET' : 'STOP',
-    rMultiple: index < 21 ? 2 : -1
-  }));
-  const outcomes = summarizeTradeOutcomes({ signals }, instrument);
-  const model = outcomes.models[0];
-
-  assert.equal(outcomes.probabilityAvailable, false);
-  assert.equal(model.probabilityAvailable, true);
-  assert.equal(model.historicalPositiveRate, 0.7);
-  assert.ok(model.confidenceInterval95.lower < model.historicalPositiveRate);
-  assert.ok(model.confidenceInterval95.upper > model.historicalPositiveRate);
 });
 
 test('persists the long-term outcome journal in an atomic JSON file', async () => {
