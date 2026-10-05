@@ -40,6 +40,10 @@
       <div><p class="eyebrow">FULL SESSION CONTEXT</p><strong>Read the footprint, not one signal.</strong><span>Price structure, bid/ask pressure, prior-session levels and setup quality together.</span></div>
       <button class="chart-toggle" id="market-read-toggle" type="button">Open detailed market read</button>
     </section>
+    <section class="overview-capture-status" data-overview aria-live="polite" aria-label="FYERS Order Flow capture status">
+      <span class="overview-capture-indicator" id="overview-capture-state" data-state="empty">NO ORDERFLOW CAPTURE</span>
+      <span id="overview-capture-detail">Waiting for captured FYERS Order Flow data. Live market ticks are separate.</span>
+    </section>
     <section class="hero-grid" data-overview>
       <article class="price-panel"><div class="panel-label">LAST TRADED PRICE <span id="symbol-label">NIFTY FUTURES</span></div><div class="price-row"><strong id="ltp">--</strong><span id="change">--</span></div><div class="range"><span>OPEN <b id="open">--</b></span><span>HIGH <b id="high">--</b></span><span>LOW <b id="low">--</b></span></div></article>
       <article class="metric-panel"><div class="panel-label">CURRENT DELTA <span>5 MIN</span></div><div class="metric-value" id="delta">--</div><div class="metric-note" id="delta-note">tick-rule estimate</div></article>

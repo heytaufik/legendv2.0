@@ -59,6 +59,44 @@ function renderFlow(flow = []) {
   }
 }
 
+function renderOverviewCapture(instrument) {
+  const capture = instrument.fyersOrderflow;
+  const state = document.getElementById('overview-capture-state');
+  const detail = document.getElementById('overview-capture-detail');
+  const candles = capture?.candles || {};
+  const capturedCandles = Object.values(candles).flat();
+  const hasProfile = Boolean(capture?.profile?.length);
+  const hasCapture = capturedCandles.length > 0 || hasProfile;
+  const freshTimeframes = Object.entries(capture?.candleFresh || {})
+    .filter(([, fresh]) => fresh)
+    .map(([timeframe]) => timeframe);
+  const isLive = Boolean(capture?.profileFresh || freshTimeframes.length);
+  const latestCapture = [
+    capture?.footprintUpdatedAt,
+    capture?.profileUpdatedAt,
+    ...Object.values(capture?.candleUpdatedAt || {})
+  ].map((time) => Date.parse(time)).filter(Number.isFinite).sort((left, right) => right - left)[0];
+
+  state.dataset.state = !hasCapture ? 'empty' : isLive ? 'live' : 'saved';
+  state.textContent = !hasCapture
+    ? 'NO ORDERFLOW CAPTURE'
+    : isLive ? 'REAL FYERS CAPTURE · LIVE' : 'FYERS CAPTURE · SAVED';
+  if (!hasCapture) {
+    detail.textContent = `No FYERS Order Flow footprint received for ${capture?.symbol || instrument.symbol || selectedSymbol}. LIVE TICKS alone do not mean an orderflow capture arrived.`;
+    return;
+  }
+
+  const timeframes = Object.keys(candles)
+    .filter((timeframe) => candles[timeframe]?.length)
+    .sort((left, right) => Number(left) - Number(right))
+    .map((timeframe) => `${timeframe}m`);
+  const sources = [
+    timeframes.length ? `${timeframes.join('/')} footprint candles` : '',
+    hasProfile ? `${capture.profile.length} session profile prices` : ''
+  ].filter(Boolean).join(' · ');
+  detail.textContent = `${capture.symbol || instrument.symbol || selectedSymbol} · ${sources}${latestCapture ? ` · last capture ${formatFootprintDateTime(latestCapture)} IST` : ''}${!isLive ? ' · waiting for next live capture' : ''}`;
+}
+
 function renderProfile(instrument, profileId = 'profile') {
   const profile = document.getElementById(profileId);
   profile.replaceChildren();
@@ -512,6 +550,7 @@ function updateInstrument() {
 
   updateProfile(instrument);
   updateProfile(instrument, 'chart-');
+  renderOverviewCapture(instrument);
   renderOpeningConviction(instrument);
   renderFlow(instrument.flow);
   renderOrderflow(instrument);
