@@ -89,6 +89,29 @@ test('combines price structure, delta, location, stacked footprint and opening c
   assert.ok(analysis.confluences.some((factor) => factor.name === 'aggressive bid/ask volume agrees' && factor.present));
 });
 
+test('measures buy and sell volume areas across every completed session candle', () => {
+  const sessions = sessionHistory();
+  const candles = sessions[1].candles[5];
+  candles.unshift({
+    ...candles[0],
+    time: now - 8 * 5 * 60000,
+    delta: 10,
+    levels: [{ price: 97, positiveVolume: 250, negativeVolume: 0 }]
+  });
+  candles[1] = {
+    ...candles[1],
+    levels: [{ price: 97, positiveVolume: 250, negativeVolume: 0 }]
+  };
+  candles.at(-1).levels = [{ price: 102, positiveVolume: 3, negativeVolume: 600 }];
+
+  const analysis = analyzeMarketHistory({ sessions, tickSize: 1, now });
+
+  assert.equal(analysis.completedCandleCount, 7);
+  assert.equal(analysis.sessionDelta, 130);
+  assert.deepEqual(analysis.buyingArea, { price: 97, buyerVolume: 560, sellerVolume: 40 });
+  assert.deepEqual(analysis.sellingArea, { price: 102, buyerVolume: 3, sellerVolume: 600 });
+});
+
 test('does not offer a plan from stale captures', () => {
   const sessions = sessionHistory();
   sessions[1].updatedAt = new Date(now - 3 * 60000).toISOString();

@@ -508,7 +508,7 @@ function renderTradeSummary(data) {
   const currentMove = Number.isFinite(analysis.sessionMove)
     ? `${formatSigned(analysis.sessionMove, ' pts')} from session open (${formatNumber(analysis.sessionOpen)}); latest price ${formatNumber(analysis.currentPrice)}.`
     : 'Session move is not available yet.';
-  const deltaSummary = `5-minute structure: ${analysis.trendDirection.toLowerCase()}; recent footprint delta ${formatSigned(analysis.recentDelta)} (${analysis.deltaAlignment.toLowerCase()}); session CVD ${formatSigned(analysis.cumulativeDelta)}.`;
+  const deltaSummary = `5-minute structure across ${analysis.completedCandleCount} completed candles: ${analysis.trendDirection.toLowerCase()}; full-session footprint delta ${formatSigned(analysis.sessionDelta)} (${analysis.deltaAlignment.toLowerCase()}); session CVD ${formatSigned(analysis.cumulativeDelta)}.`;
   const imbalance = analysis.lastImbalance?.direction && analysis.lastImbalance.direction !== 'NONE'
     ? `${analysis.lastImbalance.direction === 'UP' ? 'Buy' : 'Sell'} stacked imbalance ×${analysis.lastImbalance.direction === 'UP' ? analysis.lastImbalance.buyStack : analysis.lastImbalance.sellStack}.`
     : 'No qualifying stacked diagonal imbalance in the latest completed footprint.';
@@ -646,10 +646,10 @@ function renderMarketRead(data) {
         ? 'Price is inside the previous value area'
         : 'Previous value area is unavailable';
   const deltaContext = analysis.deltaAlignment === 'ALIGNED'
-    ? 'recent delta supports the short-term price structure'
+    ? 'full-session delta supports the 5-minute price structure'
     : analysis.deltaAlignment === 'DIVERGING'
-      ? 'recent delta conflicts with the short-term price structure'
-      : 'recent delta does not yet confirm a clear structure';
+      ? 'full-session delta conflicts with the 5-minute price structure'
+      : 'full-session delta does not yet confirm a clear structure';
   document.getElementById('read-session-story').textContent = current
     ? `${valueContext}; 5-minute price structure is ${analysis.trendDirection.toLowerCase()}, and ${deltaContext}. Opening context is ${analysis.openingDirection.toLowerCase()} and contributes only a small supporting weight—not a standalone direction call. ${data.marketDay ? analysis.marketDataFresh ? 'Market data is fresh.' : 'Market data is stale, so no new entry is evaluated.' : `Market is closed; showing the saved ${current.date} session for context only.`}`
     : 'Waiting for current-session candles and previous-session levels.';
@@ -666,10 +666,10 @@ function renderMarketRead(data) {
   document.getElementById('read-structure').textContent = analysis.trendDirection === 'UP'
     ? 'UPWARD'
     : analysis.trendDirection === 'DOWN' ? 'DOWNWARD' : 'MIXED';
-  document.getElementById('read-structure-detail').textContent = `${current?.candles?.['5']?.length || 0} captured 5-minute candles; only completed candles count toward setup checks.`;
+  document.getElementById('read-structure-detail').textContent = `${analysis.completedCandleCount} completed 5-minute candles analyzed for this session.`;
   const delta = document.getElementById('read-delta');
-  delta.textContent = formatSigned(analysis.recentDelta);
-  setTone(delta, analysis.recentDelta);
+  delta.textContent = formatSigned(analysis.sessionDelta);
+  setTone(delta, analysis.sessionDelta);
   document.getElementById('read-cvd').textContent = `Session CVD: ${formatSigned(analysis.cumulativeDelta)}`;
   const imbalance = analysis.lastImbalance;
   const imbalanceLabel = imbalance?.direction === 'UP'
@@ -679,6 +679,17 @@ function renderMarketRead(data) {
   document.getElementById('read-imbalance-detail').textContent = imbalance
     ? `${imbalance.buyImbalanceCount} buy / ${imbalance.sellImbalanceCount} sell diagonal imbalances in the latest completed candle.`
     : 'No completed footprint candle yet.';
+
+  const buyingArea = analysis.buyingArea;
+  document.getElementById('read-buying-area').textContent = buyingArea ? formatNumber(buyingArea.price) : '--';
+  document.getElementById('read-buying-area-detail').textContent = buyingArea
+    ? `Buy ${formatNumber(buyingArea.buyerVolume)} · Sell ${formatNumber(buyingArea.sellerVolume)} at price`
+    : 'No current-session footprint volume';
+  const sellingArea = analysis.sellingArea;
+  document.getElementById('read-selling-area').textContent = sellingArea ? formatNumber(sellingArea.price) : '--';
+  document.getElementById('read-selling-area-detail').textContent = sellingArea
+    ? `Sell ${formatNumber(sellingArea.sellerVolume)} · Buy ${formatNumber(sellingArea.buyerVolume)} at price`
+    : 'No current-session footprint volume';
 
   document.getElementById('read-previous-date').textContent = previous?.date || 'No prior session loaded';
   document.getElementById('read-opening-context').textContent = `Open context: ${analysis.openingDirection || 'UNKNOWN'} · supporting clue only`;
