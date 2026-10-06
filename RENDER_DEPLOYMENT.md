@@ -27,7 +27,9 @@ Neon Free can scale compute to zero while idle, so the first database operation 
 
 Neon keeps saved history separate from Render's filesystem. Render's free web-service plan may spin down after inactivity or restart; this can interrupt the live FYERS market socket and remote footprint capture. Neon protects persisted history, but it does not keep the Render service awake. Check Render's current plan limits before relying on uninterrupted market-hours capture.
 
-The dedicated Orderflow Chart view is removed. The live capture endpoint and backend analysis remain active, and the main dashboard and Setup Evaluation continue using actual FYERS captures. Setup Evaluation analyzes every completed 5-minute candle in the current session for structure, cumulative footprint delta, and price-level bid/ask volume; it shows the session's highest buy-volume and sell-volume prices alongside prior/current value areas, highs/lows, HVNs/LVNs, and continuation/reversal confluences. Entry triggers still require a qualifying latest-candle signal. Qualified setups are recorded in the `setup-outcomes` document (PostgreSQL on Render when `DATABASE_URL` is configured). The demo tracker marks an entry open only after a live FYERS price crosses the saved trigger and simulates stop/target outcomes; it does not submit orders.
+The live trade summary stays compact: it reports the move from the session open, the strongest same-direction price-level Bid/Ask delta range, and whether price has accepted beyond that range for a continuation pullback. A separate reversal section signals only when delta divergence, absorption, and volume exhaustion are all present; stacked imbalance is optional confirmation. The detailed context remains available below the summary. These are analytical signals, not broker orders or guarantees.
+
+If Render reports an exit status such as `134`, inspect the instance logs around the exit before attributing a cause. A later healthy `/api/health` response confirms recovery, but does not by itself establish why the process exited.
 
 ## Forward numeric footprint from the desktop
 

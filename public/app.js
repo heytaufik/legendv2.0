@@ -489,54 +489,38 @@ function renderOrderflow(instrument) {
 
 function renderTradeSummary(data) {
   const summary = document.getElementById('market-summary-content');
-  const panel = document.getElementById('market-summary-panel');
-  const toggle = document.getElementById('market-summary-toggle');
-  if (!summary || !panel || !toggle) return;
-
+  const reversalSummary = document.getElementById('reversal-summary-content');
+  if (!summary || !reversalSummary) return;
   const analysis = data?.analysis;
   if (!analysis) return;
-  const plan = analysis.tradePlan;
-  const direction = plan?.direction || analysis.trendDirection;
-  const directionLabel = direction === 'UP' ? 'Bullish / long'
-    : direction === 'DOWN' ? 'Bearish / short'
-      : 'Mixed / no confirmed direction';
-  const setupType = plan
-    ? analysis.trendDirection !== 'MIXED' && plan.direction !== analysis.trendDirection
-      ? 'Reversal'
-      : 'Trend continuation'
-    : 'No qualified setup';
-  const currentMove = Number.isFinite(analysis.sessionMove)
-    ? `${formatSigned(analysis.sessionMove, ' pts')} from session open (${formatNumber(analysis.sessionOpen)}); latest price ${formatNumber(analysis.currentPrice)}.`
-    : 'Session move is not available yet.';
-  const deltaSummary = `5-minute structure across ${analysis.completedCandleCount} completed candles: ${analysis.trendDirection.toLowerCase()}; full-session footprint delta ${formatSigned(analysis.sessionDelta)} (${analysis.deltaAlignment.toLowerCase()}); session CVD ${formatSigned(analysis.cumulativeDelta)}.`;
-  const imbalance = analysis.lastImbalance?.direction && analysis.lastImbalance.direction !== 'NONE'
-    ? `${analysis.lastImbalance.direction === 'UP' ? 'Buy' : 'Sell'} stacked imbalance ×${analysis.lastImbalance.direction === 'UP' ? analysis.lastImbalance.buyStack : analysis.lastImbalance.sellStack}.`
-    : 'No qualifying stacked diagonal imbalance in the latest completed footprint.';
-  const conviction = plan
-    ? `${directionLabel} bias · evidence ${plan.evidenceScore}/100. This is a rule-confluence score, not a win probability.`
-    : `${directionLabel} bias, but no qualified entry is available. ${analysis.reason}`;
-  const setupDetails = plan
-    ? `${setupType} setup: ${plan.model}. ${analysis.reason}`
-    : `${setupType}. The engine will only identify a reversal or continuation after its completed-candle, footprint, level-reaction, freshness, and risk/reward conditions are met.`;
+  const move = Number.isFinite(analysis.sessionMove)
+    ? `Open se ${formatSigned(analysis.sessionMove, ' pts')}`
+    : 'Open se move unavailable';
+  const area = analysis.deltaArea;
+  const fresh = Boolean(data.marketDay && analysis.marketDataFresh && analysis.footprintDataFresh);
+  const areaText = area
+    ? `${area.direction === 'UP' ? 'Buy' : 'Sell'} delta ${formatNumber(area.low)}–${formatNumber(area.high)} · net Δ ${formatSigned(area.netDelta)}`
+    : 'Strong same-direction delta area nahi mila';
+  const continuation = !fresh
+    ? 'Fresh live data ka wait'
+    : !area
+      ? 'No continuation entry'
+      : area.accepted
+        ? `Accepted · pullback area ${formatNumber(area.low)}–${formatNumber(area.high)}`
+        : 'Acceptance ka wait · abhi entry nahi';
+  summary.textContent = `${move} · ${areaText} · ${continuation}`;
 
-  summary.replaceChildren();
-  const addSummaryLine = (label, text) => {
-    const paragraph = document.createElement('p');
-    const heading = document.createElement('strong');
-    heading.textContent = `${label}: `;
-    paragraph.append(heading, document.createTextNode(text));
-    summary.append(paragraph);
-  };
-  addSummaryLine('Direction conviction', conviction);
-  addSummaryLine('Current market move', `${currentMove} ${analysis.priceVsPreviousValue.replaceAll('_', ' ').toLowerCase()} versus prior value.`);
-  addSummaryLine('Footprint read', `${analysis.marketBehavior} ${deltaSummary} ${imbalance}`);
-  addSummaryLine('Setup interpretation', setupDetails);
-  addSummaryLine('Entry logic', plan
-    ? `Trigger ${formatNumber(plan.entry)} · stop ${formatNumber(plan.stop)} · target ${formatNumber(plan.target)} · risk/reward 1:${numberFormat.format(plan.riskReward)} · ${plan.status.replaceAll('_', ' ')}. Evidence: ${plan.evidence.map((factor) => `${factor.name} ${factor.points}/${factor.maxPoints}`).join('; ')}`
-    : 'No entry trigger is being suggested. Wait for the full setup conditions; do not infer an entry from price, opening location, or estimated tick delta alone.');
-
-  const isOpen = !panel.hidden;
-  toggle.textContent = isOpen ? 'Hide live trade summary' : 'Show live trade summary';
+  const reversal = analysis.reversalSetup;
+  const reversalDirection = reversal?.direction === 'DOWN' ? 'SHORT' : 'LONG';
+  reversalSummary.textContent = !fresh
+    ? 'Fresh live data ka wait; reversal signal nahi.'
+    : !reversal
+      ? 'Clear trend aur enough completed footprint candles ka wait.'
+      : reversal.status === 'SIGNAL'
+        ? `${reversalDirection} reversal SIGNAL · delta divergence · absorption ${formatNumber(reversal.absorptionRange.low)}–${formatNumber(reversal.absorptionRange.high)} · volume exhaustion${reversal.stackedImbalance ? ' · stacked imbalance confirm' : ''} · trigger ${formatNumber(reversal.entryTrigger)}`
+        : reversal.status === 'WATCH'
+          ? `${reversalDirection} reversal WATCH · ${reversal.conditionsMet}/3 core conditions met${reversal.stackedImbalance ? ' · stacked imbalance confirm' : ''}`
+          : `${reversalDirection} reversal · delta divergence, absorption aur exhaustion ka wait`;
 }
 
 function renderOpeningConviction(instrument) {
@@ -637,7 +621,7 @@ function renderMarketRead(data) {
     analysis.footprintDataFresh ? '5-minute footprint fresh' : '5-minute footprint stale'
   ].join(' · ');
   status.textContent = `${marketStatus}${analysis.readiness.replaceAll('_', ' ')} · ${freshness} · ${data.sessions.length} session(s) saved · FYERS footprint`;
-  status.dataset.state = analysis.readiness === 'PLAN_AVAILABLE' ? 'ready' : 'waiting';
+  status.dataset.state = analysis.readiness === 'CONTINUATION_AREA_ACCEPTED' ? 'ready' : 'waiting';
   const valueContext = analysis.priceVsPreviousValue === 'ABOVE_VALUE'
     ? 'Price is above the previous value area'
     : analysis.priceVsPreviousValue === 'BELOW_VALUE'
@@ -842,16 +826,6 @@ instrumentButtons.forEach((button) => {
 document.getElementById('market-read-toggle').addEventListener('click', openMarketRead);
 document.getElementById('market-read-refresh').addEventListener('click', openMarketRead);
 document.getElementById('market-read-back').addEventListener('click', () => setView('overview'));
-
-const marketSummaryPanel = document.getElementById('market-summary-panel');
-const marketSummaryToggle = document.getElementById('market-summary-toggle');
-marketSummaryToggle.addEventListener('click', () => {
-  const nextHidden = !marketSummaryPanel.hidden;
-  marketSummaryPanel.hidden = nextHidden;
-  marketSummaryToggle.textContent = nextHidden ? 'Show live trade summary' : 'Hide live trade summary';
-});
-marketSummaryPanel.hidden = true;
-marketSummaryToggle.textContent = 'Show live trade summary';
 
 const stream = new EventSource('/api/market-stream');
 stream.addEventListener('message', (event) => {

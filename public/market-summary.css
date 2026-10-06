@@ -1,0 +1,9 @@
+.market-summary-panel{margin-top:12px;padding:16px;border:1px solid var(--line);background:#151a18}
+.market-summary-header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.market-summary-content{margin-top:8px;color:#e8eceb;font-size:13px;line-height:1.6}
+.reversal-summary{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);color:#c9d2ce;font-size:12px;line-height:1.6}
+.reversal-summary .eyebrow{margin:0 0 5px;color:var(--muted);font:9px "Space Mono",monospace}
+.market-read-more{margin:10px 0;border:1px solid var(--line);background:#151a18}
+.market-read-more>summary{padding:11px 14px;color:var(--muted);font:10px "Space Mono",monospace;cursor:pointer}
+.market-read-more[open]>summary{border-bottom:1px solid var(--line)}
+.market-read-more>.market-read-grid,.market-read-more>.market-read-panel,.market-read-more>.market-read-confluences,.market-read-more>.demo-trades,.market-read-more>.market-read-disclaimer{margin:12px}
